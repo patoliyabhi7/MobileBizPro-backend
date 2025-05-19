@@ -5,7 +5,6 @@ const contactSchema = new mongoose.Schema({
 
   prefix: String,
   firstName: { type: String, required: true },
-  middleName: String,
   lastName: String,
 
   businessName: String,
@@ -16,7 +15,7 @@ const contactSchema = new mongoose.Schema({
   advanceBalance: { type: Number, default: 0 },
 
   payTerm: Number,
-  payTermPeriod: { type: String, enum: ['days', 'months'] },
+  payTermPeriod: { type: String, enum: ['days', 'months', 'years', 'DAYS', 'MONTHS', 'YEARS'] },
 
   creditLimit: Number,
 

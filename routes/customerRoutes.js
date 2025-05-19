@@ -9,10 +9,10 @@ const { getAllCustomers } = require('../controllers/contacts/customers/getAllCus
 const { updateCustomer } = require('../controllers/contacts/customers/updateCustomer');
 const { deleteCustomer } = require('../controllers/contacts/customers/deleteCustomer');
 
-router.post('/', protect, authorizeRoles('Admin'), addCustomer);
+router.post('/', protect, authorizeRoles('admin'), addCustomer);
 router.get('/', protect, getAllCustomers);
 router.get('/:id', protect, getCustomerById);
-router.put('/:id', protect, authorizeRoles('Admin'), updateCustomer);
-router.delete('/:id', protect, authorizeRoles('Admin'), deleteCustomer);
+router.put('/:id', protect, authorizeRoles('admin'), updateCustomer);
+router.delete('/:id', protect, authorizeRoles('admin'), deleteCustomer);
 
 module.exports = router;
