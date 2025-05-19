@@ -11,7 +11,6 @@ const productSchema = new mongoose.Schema({
   sku: { type: String, unique: true },
   sellingPrice: { type: Number },
   purchasePrice: { type: Number },
-  enableStock: { type: Boolean, default: true },
   isInactive: { type: Boolean, default: false }
 }, { timestamps: true });
 

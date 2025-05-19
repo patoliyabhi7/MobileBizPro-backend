@@ -1,0 +1,46 @@
+const mongoose = require('mongoose');
+
+const contactSchema = new mongoose.Schema({
+  contactType: { type: String, enum: ['Customer', 'Supplier', 'Both'], required: true },
+
+  prefix: String,
+  firstName: { type: String, required: true },
+  middleName: String,
+  lastName: String,
+
+  businessName: String,
+  contactId: String,
+  taxNumber: String,
+
+  openingBalance: { type: Number, default: 0 },
+  advanceBalance: { type: Number, default: 0 },
+
+  payTerm: Number,
+  payTermPeriod: { type: String, enum: ['days', 'months'] },
+
+  creditLimit: Number,
+
+  email: String,
+  mobile: { type: String, required: true },
+  altContactNumber: String,
+  landline: String,
+
+  addressLine1: String,
+  addressLine2: String,
+  city: String,
+  state: String,
+  country: String,
+  zipCode: String,
+
+  customerGroup: String,
+  dateOfBirth: Date,
+
+  totalSaleDue: { type: Number, default: 0 },
+  totalSellReturnDue: { type: Number, default: 0 },
+  totalPurchaseDue: { type: Number, default: 0 },
+  totalPurchaseReturnDue: { type: Number, default: 0 },
+
+  addedOn: { type: Date, default: Date.now },
+});
+
+module.exports = mongoose.model('Contact', contactSchema);

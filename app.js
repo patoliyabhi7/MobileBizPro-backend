@@ -34,4 +34,13 @@ app.use('/api/business-locations', businessLocationRoutes);
 const productRoutes = require('./routes/productRoutes');
 app.use('/api/products', productRoutes);
 
+const supplierRoutes = require('./routes/supplierRoutes');
+app.use('/api/suppliers', supplierRoutes);
+
+const customerRoutes = require('./routes/customerRoutes');
+app.use('/api/customers', customerRoutes);
+
+const importRoutes = require('./routes/importContactRoutes');
+app.use('/api/contacts/import', importRoutes);
+
 module.exports = app;
