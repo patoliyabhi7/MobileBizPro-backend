@@ -22,4 +22,8 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const userRoutes = require('./routes/userRoutes');
 app.use('/api/users', userRoutes);
 
+const brandRoutes = require('./routes/brandRoutes');
+app.use('/api/brands', brandRoutes);
+
+
 module.exports = app;
