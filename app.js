@@ -28,4 +28,10 @@ app.use('/api/brands', brandRoutes);
 const categoryRoutes = require('./routes/categoryRoutes');
 app.use('/api/categories', categoryRoutes);
 
+const businessLocationRoutes = require('./routes/businessLocationRoutes');
+app.use('/api/business-locations', businessLocationRoutes);
+
+const productRoutes = require('./routes/productRoutes');
+app.use('/api/products', productRoutes);
+
 module.exports = app;
