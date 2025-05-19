@@ -5,12 +5,14 @@ const router = express.Router();
 
 const { addBrand } = require('../controllers/brands/addBrand');
 const { getBrands } = require('../controllers/brands/getBrands');
+const { getBrandById } = require('../controllers/brands/getBrandById');
 const { updateBrand } = require('../controllers/brands/updateBrand');
 const { deleteBrand } = require('../controllers/brands/deleteBrand');
 
 // Example: /api/brands
 router.post('/', protect, authorizeRoles('admin'), addBrand);
-router.get('/', protect, authorizeRoles('admin'), getBrands);
+router.get('/', protect, getBrands);
+router.get('/:id', protect, getBrandById);
 router.put('/:id', protect, authorizeRoles('admin'), updateBrand);
 router.delete('/:id', protect, authorizeRoles('admin'), deleteBrand);
 

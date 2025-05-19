@@ -25,5 +25,7 @@ app.use('/api/users', userRoutes);
 const brandRoutes = require('./routes/brandRoutes');
 app.use('/api/brands', brandRoutes);
 
+const categoryRoutes = require('./routes/categoryRoutes');
+app.use('/api/categories', categoryRoutes);
 
 module.exports = app;
