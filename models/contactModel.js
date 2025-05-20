@@ -40,6 +40,8 @@ const contactSchema = new mongoose.Schema({
   totalPurchaseReturnDue: { type: Number, default: 0 },
 
   addedOn: { type: Date, default: Date.now },
+
+  isDeleted: { type: Boolean, default: false },
 });
 
 module.exports = mongoose.model('Contact', contactSchema);

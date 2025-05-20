@@ -11,7 +11,7 @@ const productSchema = new mongoose.Schema({
   sku: { type: String, unique: true },
   sellingPrice: { type: Number },
   purchasePrice: { type: Number },
-  isInactive: { type: Boolean, default: false }
+  isDeleted: { type: Boolean, default: false }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Product', productSchema);

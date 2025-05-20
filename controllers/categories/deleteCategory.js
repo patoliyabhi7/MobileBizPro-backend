@@ -2,11 +2,19 @@ const Category = require('../../models/categoryModel');
 
 exports.deleteCategory = async (req, res) => {
   try {
-    const category = await Category.findByIdAndDelete(req.params.id);
-    if (!category) return res.status(404).json({ message: 'Category not found' });
+    const category = await Category.findByIdAndUpdate(
+      req.params.id,
+      { isDeleted: true },
+      { new: true }
+    );
 
-    res.status(200).json({ message: 'Category deleted successfully' });
+    if (!category) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    res.json({ message: 'Category soft-deleted successfully', category });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+

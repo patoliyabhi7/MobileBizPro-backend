@@ -2,7 +2,7 @@ const Product = require('../../models/productModel');
 
 exports.getAllProducts = async (req, res) => {
   try {
-    const products = await Product.find()
+    const products = await Product.find({ isDeleted: false })
       .populate('brand')
       .populate('category')
       .populate('businessLocation');

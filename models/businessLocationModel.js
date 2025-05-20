@@ -9,7 +9,7 @@ const businessLocationSchema = new mongoose.Schema({
     zipCode: { type: String },
     phone: { type: String },
     email: { type: String },
-    isActive: { type: Boolean, default: true },
+    isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });
 
 module.exports = mongoose.model('BusinessLocation', businessLocationSchema);
