@@ -52,4 +52,7 @@ app.use('/api/sales', saleRoutes);
 const expenseCategoriesRoutes = require('./routes/expenseCategoriesRoutes');
 app.use('/api/expense-categories', expenseCategoriesRoutes);
 
+const expenseRoutes = require('./routes/expenseRoutes');
+app.use('/api/expenses', expenseRoutes);
+
 module.exports = app;
