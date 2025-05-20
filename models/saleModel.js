@@ -1,0 +1,46 @@
+const mongoose = require('mongoose');
+
+const saleProductSchema = new mongoose.Schema({
+  product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+  serialNo: String,
+  imeiNo: String,
+  color: String,
+  storage: String,
+  quantity: { type: Number, required: true },
+  unitPrice: { type: Number, required: true },
+  lineTotal: { type: Number, required: true }
+});
+
+const paymentSchema = new mongoose.Schema({
+  amount: { type: Number, required: true },
+  paidOn: { type: Date, required: true },
+  method: { type: String, required: true },
+  account: String,
+  note: String
+});
+
+const saleSchema = new mongoose.Schema({
+  invoiceNo: { type: String, required: true, unique: true },
+  customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact', required: true },
+  contactNumber: String,
+  saleDate: { type: Date, required: true },
+  businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
+  payTerm: Number,
+  payTermType: { type: String, enum: ['days', 'months'] },
+  document: String,
+  products: [saleProductSchema],
+  additionalNotes: String,
+  staffNote: String,
+  shippingDetails: String,
+  payments: [paymentSchema],
+  total: { type: Number, required: true },
+  status: { type: String, enum: ['completed', 'pending'], default: 'completed' },
+  paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
+  shippingStatus: { type: String, enum: ['shipped', 'pending'], default: 'pending' },
+  totalItems: { type: Number },
+  typesOfService: String,
+  addedBy: String,
+  isDeleted: { type: Boolean, default: false },
+}, { timestamps: true });
+
+module.exports = mongoose.model('Sale', saleSchema);

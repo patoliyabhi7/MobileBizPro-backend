@@ -46,4 +46,7 @@ app.use('/api/contacts/import', importRoutes);
 const purchaseRoutes = require('./routes/purchaseRoutes');
 app.use('/api/purchases', purchaseRoutes);
 
+const saleRoutes = require('./routes/saleRoutes');
+app.use('/api/sales', saleRoutes);
+
 module.exports = app;
