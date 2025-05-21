@@ -8,8 +8,10 @@ const { getAllExpenses } = require('../controllers/expenses/getAllExpenses');
 const { getExpenseById } = require('../controllers/expenses/getExpenseById');
 const { updateExpense } = require('../controllers/expenses/updateExpense');
 const { deleteExpense } = require('../controllers/expenses/deleteExpense');
+const { getAllExpensesByBusinessLocation } = require('../controllers/expenses/getAllExpensesByBusinessLocation');
 
 router.post('/', protect, authorizeRoles('admin'), addExpense);
+router.get('/location/:locationId', protect, getAllExpensesByBusinessLocation);
 router.get('/', protect, getAllExpenses);
 router.get('/:id', protect, getExpenseById);
 router.put('/:id', protect, authorizeRoles('admin'), updateExpense);
