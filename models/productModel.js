@@ -8,7 +8,7 @@ const productSchema = new mongoose.Schema({
   businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation' },
   quantity: { type: Number, default: 0 },
   type: { type: String }, // e.g. 'Single'
-  sku: { type: String, unique: true },
+  sku: { type: String, unique: true, required: true },
   sellingPrice: { type: Number },
   purchasePrice: { type: Number },
   isDeleted: { type: Boolean, default: false }
