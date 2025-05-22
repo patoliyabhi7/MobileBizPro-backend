@@ -55,4 +55,7 @@ app.use('/api/expenses', expenseRoutes);
 const expenseCategoriesRoutes = require('./routes/expenseCategoriesRoutes');
 app.use('/api/expense-categories', expenseCategoriesRoutes);
 
+const accountTypeRoutes = require('./routes/accountTypeRoutes');
+app.use('/api/account-types', accountTypeRoutes);
+
 module.exports = app;

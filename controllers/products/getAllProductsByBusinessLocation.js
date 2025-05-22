@@ -14,7 +14,10 @@ exports.getAllProductsByBusinessLocation = async (req, res) => {
         const products = await Product.find({
             businessLocation: locationId,
             isDeleted: false
-        });
+        })
+        .populate('brand')
+        .populate('category')
+        .populate('businessLocation');;
 
         res.status(200).json({ products });
     } catch (err) {

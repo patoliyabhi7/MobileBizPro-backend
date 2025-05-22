@@ -14,7 +14,10 @@ exports.getAllExpensesByBusinessLocation = async (req, res) => {
         const expenses = await Expense.find({
             businessLocation: locationId,
             isDeleted: false
-        });
+        })
+        .populate('category')
+        .populate('businessLocation')
+        .populate('contact');
 
         res.status(200).json({ expenses });
     } catch (err) {

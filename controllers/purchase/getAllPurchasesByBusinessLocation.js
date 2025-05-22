@@ -14,7 +14,10 @@ exports.getAllPurchasesByBusinessLocation = async (req, res) => {
     const purchases = await Purchase.find({
       businessLocation: locationId,
       isDeleted: false
-    });
+    })
+    .populate('supplier', 'businessName firstName lastName')
+      .populate('businessLocation', 'name')
+      .populate('products.product', 'productName');
 
     res.status(200).json({ purchases });
   } catch (err) {

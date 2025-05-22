@@ -14,7 +14,8 @@ exports.getAllSalesByBusinessLocation = async (req, res) => {
         const sales = await Sale.find({
             businessLocation: locationId,
             isDeleted: false
-        });
+        }).populate('customer')
+        .populate('businessLocation');
 
         res.status(200).json({ sales });
     } catch (err) {
