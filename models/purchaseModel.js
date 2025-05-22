@@ -34,6 +34,7 @@ const purchaseSchema = new mongoose.Schema({
   status: { type: String, enum: ['received', 'pending', 'ordered'], default: 'received' },
   paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
   addedBy: String,
+  linkedAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
   isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });
 

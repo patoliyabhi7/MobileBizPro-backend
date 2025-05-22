@@ -9,11 +9,17 @@ const { updateAccount } = require('../controllers/accounts/updateAccount');
 const { toggleAccountStatus } = require('../controllers/accounts/toggleAccountStatus');
 const { getAllClosedAccount } = require('../controllers/accounts/getAllClosedAccount');
 const { getAllActiveAccount } = require('../controllers/accounts/getAllActiveAccount');
+const { fundTransfer } = require('../controllers/accounts/fundTransfer');
+const { depositToAccount } = require('../controllers/accounts/depositToAccount');
+const { getAccountBook } = require('../controllers/accounts/getAccountBook');
 
 router.post('/', protect, authorizeRoles('admin'), addAccount);
 router.get('/closed', protect, authorizeRoles('admin'), getAllClosedAccount);
 router.get('/active', protect, authorizeRoles('admin'), getAllActiveAccount);
+router.post('/transfer', protect, authorizeRoles('admin'), fundTransfer);
+router.post('/deposit', protect, authorizeRoles('admin'), depositToAccount);
 router.put('/toggle/:id', protect, authorizeRoles('admin'), toggleAccountStatus);
+router.get('/book/:id', protect, authorizeRoles('admin'), getAccountBook);
 router.get('/:id', protect, authorizeRoles('admin'), getAccountById);
 router.put('/:id', protect, authorizeRoles('admin'), updateAccount);
 

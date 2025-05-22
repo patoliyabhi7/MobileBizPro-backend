@@ -40,6 +40,7 @@ const saleSchema = new mongoose.Schema({
   totalItems: { type: Number },
   typesOfService: String,
   addedBy: String,
+  linkedAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
   isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });
 

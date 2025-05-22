@@ -61,4 +61,7 @@ app.use('/api/account-types', accountTypeRoutes);
 const accountRoutes = require('./routes/accountRoutes');
 app.use('/api/accounts', accountRoutes);
 
+const linkAccountsRoutes = require('./routes/linkAccountRoutes');
+app.use('/api/links', linkAccountsRoutes);
+
 module.exports = app;
