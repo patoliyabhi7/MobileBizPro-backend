@@ -1,0 +1,15 @@
+const mongoose = require('mongoose');
+
+const accountSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  account_number: { type: String, required: true },
+  account_type: { type: String, required: true }, // e.g., "Cash" or "Bank"
+  account_type_id: { type: Number, required: true },
+  account_details: { type: String },
+  balance: { type: Number, default: 0 },
+  added_by: { type: String },
+  note: { type: String },
+  is_active: { type: Boolean, default: true }
+}, { timestamps: true });
+
+module.exports = mongoose.model('Account', accountSchema);
