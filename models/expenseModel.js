@@ -29,6 +29,7 @@ const expenseSchema = new mongoose.Schema({
   paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
   additionalNotes: String,
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
   linkedAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
   isDeleted: { type: Boolean, default: false }
 }, { timestamps: true });

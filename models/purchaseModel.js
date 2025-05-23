@@ -34,6 +34,7 @@ const purchaseSchema = new mongoose.Schema({
   total: { type: Number, required: true },
   status: { type: String, enum: ['received', 'pending', 'ordered', 'return', 'cancelled'], default: 'received' },
   paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
+  businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   linkedAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
   isDeleted: { type: Boolean, default: false },

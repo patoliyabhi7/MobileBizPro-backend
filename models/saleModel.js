@@ -40,6 +40,7 @@ const saleSchema = new mongoose.Schema({
   shippingStatus: { type: String, enum: ['shipped', 'pending'], default: 'pending' },
   totalItems: { type: Number },
   typesOfService: String,
+  businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   linkedAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
   isDeleted: { type: Boolean, default: false },
