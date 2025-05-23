@@ -12,7 +12,7 @@ exports.updatePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found or deleted' });
     }
 
-    res.status(200).json({ message: 'Purchase updated successfully', updatedPurchase });
+    res.status(200).json(updatedPurchase.populate('addedBy', 'name _id'));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

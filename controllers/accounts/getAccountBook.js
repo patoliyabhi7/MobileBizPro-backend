@@ -10,7 +10,11 @@ exports.getAccountBook = async (req, res) => {
     let runningBalance = 0;
     const entries = [];
 
-    // Helper to push a standardized entry
+    const formatUser = (user) => ({
+      _id: user?._id || '',
+      name: user?.name || ''
+    });
+
     const pushEntry = ({ date, description, method, details, note, addedBy, debit, credit }) => {
       if (credit) runningBalance += credit;
       if (debit) runningBalance -= debit;
@@ -21,24 +25,24 @@ exports.getAccountBook = async (req, res) => {
         paymentMethod: method || '',
         paymentDetails: details || '',
         note: note || '',
-        addedBy: addedBy || '',
+        addedBy: formatUser(addedBy),
         debit: debit ? debit.toFixed(2) : '',
         credit: credit ? credit.toFixed(2) : '',
         balance: runningBalance.toFixed(2),
       });
     };
 
-    // Fetch all records in parallel
+    // Fetch and populate all records in parallel
     const [deposits, transfersOut, transfersIn, sales, purchases, expenses] = await Promise.all([
-      Deposit.find({ to_account: accountId }),
-      FundTransfer.find({ from_account: accountId }),
-      FundTransfer.find({ to_account: accountId }),
-      Sale.find({ linkedAccount: accountId }),
-      Purchase.find({ linkedAccount: accountId }),
-      Expense.find({ linkedAccount: accountId })
+      Deposit.find({ to_account: accountId }).populate('addedBy', 'name'),
+      FundTransfer.find({ from_account: accountId }).populate('addedBy', 'name'),
+      FundTransfer.find({ to_account: accountId }).populate('addedBy', 'name'),
+      Sale.find({ linkedAccount: accountId }).populate('addedBy', 'name'),
+      Purchase.find({ linkedAccount: accountId }).populate('addedBy', 'name'),
+      Expense.find({ linkedAccount: accountId }).populate('addedBy', 'name')
     ]);
 
-    // Map deposits
+    // Deposits (money IN)
     deposits.forEach(dep => {
       pushEntry({
         date: dep.createdAt,
@@ -46,13 +50,13 @@ exports.getAccountBook = async (req, res) => {
         method: dep.payment_method,
         details: dep.payment_details,
         note: dep.note,
-        addedBy: dep.added_by,
+        addedBy: dep.addedBy,
         debit: 0,
         credit: parseFloat(dep.amount)
       });
     });
 
-    // Map fund transfers IN
+    // Fund Transfers Received (money IN)
     transfersIn.forEach(tr => {
       pushEntry({
         date: tr.createdAt,
@@ -60,13 +64,13 @@ exports.getAccountBook = async (req, res) => {
         method: tr.payment_method,
         details: tr.payment_details,
         note: tr.note,
-        addedBy: tr.added_by,
+        addedBy: tr.addedBy,
         debit: 0,
         credit: parseFloat(tr.amount)
       });
     });
 
-    // Map fund transfers OUT
+    // Fund Transfers Sent (money OUT)
     transfersOut.forEach(tr => {
       pushEntry({
         date: tr.createdAt,
@@ -74,13 +78,13 @@ exports.getAccountBook = async (req, res) => {
         method: tr.payment_method,
         details: tr.payment_details,
         note: tr.note,
-        addedBy: tr.added_by,
+        addedBy: tr.addedBy,
         debit: parseFloat(tr.amount),
         credit: 0
       });
     });
 
-    // Map sales (money comes IN)
+    // Sales (money IN)
     sales.forEach(sale => {
       pushEntry({
         date: sale.transaction_date,
@@ -88,27 +92,27 @@ exports.getAccountBook = async (req, res) => {
         method: sale.payment_method || '',
         details: sale.payment_details || '',
         note: sale.note || sale.additional_notes || '',
-        addedBy: sale.added_by,
+        addedBy: sale.addedBy,
         debit: 0,
         credit: parseFloat(sale.paid_amount || sale.final_total || 0)
       });
     });
 
-    // Map purchases (money goes OUT)
+    // Purchases (money OUT)
     purchases.forEach(pur => {
       pushEntry({
-        date: pur.transaction_date,
-        description: `Purchase - Ref: ${pur.ref_no || ''}`,
+        date: pur.purchaseDate || pur.transaction_date,
+        description: `Purchase - Ref: ${pur.referenceNo || pur.ref_no || ''}`,
         method: pur.payment_method || '',
         details: pur.payment_details || '',
-        note: pur.note,
-        addedBy: pur.added_by,
+        note: pur.note || pur.additionalNotes || '',
+        addedBy: pur.addedBy,
         debit: parseFloat(pur.total || 0),
         credit: 0
       });
     });
 
-    // Map expenses (money goes OUT)
+    // Expenses (money OUT)
     expenses.forEach(exp => {
       pushEntry({
         date: exp.date,
@@ -116,13 +120,13 @@ exports.getAccountBook = async (req, res) => {
         method: exp.payment_method || '',
         details: exp.payment_details || '',
         note: exp.note,
-        addedBy: exp.added_by,
+        addedBy: exp.addedBy,
         debit: parseFloat(exp.amount),
         credit: 0
       });
     });
 
-    // Sort all entries by date (latest first)
+    // Sort entries by date (latest first)
     entries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     res.status(200).json({ accountId, entries });
@@ -131,29 +135,3 @@ exports.getAccountBook = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-
-// exports.getAccountBook = async (req, res) => {
-//   try {
-//     const accountId = req.params.id;
-
-//     const deposits = await Deposit.find({ to_account: accountId });
-//     const transfersOut = await FundTransfer.find({ from_account: accountId });
-//     const transfersIn = await FundTransfer.find({ to_account: accountId });
-
-//     const linkedSales = await Sale.find({ linkedAccount: accountId });
-//     const linkedPurchases = await Purchase.find({ linkedAccount: accountId });
-//     const linkedExpenses = await Expense.find({ linkedAccount: accountId });
-
-//     res.status(200).json({
-//       deposits,
-//       transfersIn,
-//       transfersOut,
-//       linkedSales,
-//       linkedPurchases,
-//       linkedExpenses
-//     });
-//   } catch (err) {
-//     res.status(500).json({ error: err.message });
-//   }
-// };

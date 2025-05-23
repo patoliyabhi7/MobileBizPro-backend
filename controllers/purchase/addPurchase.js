@@ -16,14 +16,16 @@ exports.addPurchase = async (req, res) => {
     // Format: PUR2025/0001
     const formattedSeq = String(counter.seq).padStart(4, '0');
     const referenceNo = `${prefix}/${formattedSeq}`;
+    req.body.addedBy = req.user.userId;
 
     const purchase = new Purchase({
       ...req.body,
-      referenceNo,
+      referenceNo
     });
 
     await purchase.save();
-    res.status(201).json({ message: 'Purchase added successfully', purchase });
+    const populatedPurchase = await Purchase.findById(purchase._id).populate('linkedAccount').populate('addedBy', 'name _id');
+    res.status(201).json({ message: 'Purchase added successfully', populatedPurchase });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

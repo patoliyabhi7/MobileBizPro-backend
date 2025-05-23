@@ -5,7 +5,9 @@ exports.getPurchaseById = async (req, res) => {
     const purchase = await Purchase.findById(req.params.id)
       .populate('supplier', 'businessName firstName lastName')
       .populate('businessLocation', 'name')
-      .populate('products.product', 'productName');
+      .populate('products.product', 'productName')
+      .populate('addedBy', 'name _id')
+      .populate('linkedAccount');
 
     if (!purchase || purchase.isDeleted) {
       return res.status(404).json({ message: 'Purchase not found' });

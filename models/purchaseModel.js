@@ -15,6 +15,7 @@ const paymentSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   paidOn: { type: Date, required: true },
   method: { type: String, required: true },
+  paymentDue: { type: Number },
   account: String,
   note: String
 });
@@ -31,9 +32,9 @@ const purchaseSchema = new mongoose.Schema({
   additionalNotes: String,
   payments: [paymentSchema],
   total: { type: Number, required: true },
-  status: { type: String, enum: ['received', 'pending', 'ordered'], default: 'received' },
+  status: { type: String, enum: ['received', 'pending', 'ordered', 'return', 'cancelled'], default: 'received' },
   paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
-  addedBy: String,
+  addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   linkedAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
   isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });

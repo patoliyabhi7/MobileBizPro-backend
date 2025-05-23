@@ -15,6 +15,7 @@ const paymentSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   paidOn: { type: Date, required: true },
   method: { type: String, required: true },
+  paymentDue: { type: Number },
   account: String,
   note: String
 });
@@ -39,7 +40,7 @@ const saleSchema = new mongoose.Schema({
   shippingStatus: { type: String, enum: ['shipped', 'pending'], default: 'pending' },
   totalItems: { type: Number },
   typesOfService: String,
-  addedBy: String,
+  addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   linkedAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
   isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });

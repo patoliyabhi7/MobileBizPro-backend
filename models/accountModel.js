@@ -7,7 +7,7 @@ const accountSchema = new mongoose.Schema({
   account_type_id: { type: Number, required: true },
   account_details: { type: String },
   balance: { type: Number, default: 0 },
-  added_by: { type: String },
+  addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }  ,
   note: { type: String },
   is_active: { type: Boolean, default: true }
 }, { timestamps: true });

@@ -4,7 +4,9 @@ exports.listPurchaseReturns = async (req, res) => {
   try {
     const returns = await Purchase.find({ isDeleted: false, status: 'return' })
       .populate('supplier', 'businessName firstName lastName')
-      .populate('businessLocation', 'name');
+      .populate('businessLocation', 'name')
+      .populate('addedBy', 'name _id')
+      .populate('linkedAccount');
 
     res.status(200).json(returns);
   } catch (err) {

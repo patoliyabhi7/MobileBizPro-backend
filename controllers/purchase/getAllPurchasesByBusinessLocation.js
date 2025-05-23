@@ -17,7 +17,9 @@ exports.getAllPurchasesByBusinessLocation = async (req, res) => {
     })
     .populate('supplier', 'businessName firstName lastName')
       .populate('businessLocation', 'name')
-      .populate('products.product', 'productName');
+      .populate('products.product', 'productName')
+      .populate('addedBy', 'name _id')
+      .popolate('linkedAccount');
 
     res.status(200).json({ purchases });
   } catch (err) {

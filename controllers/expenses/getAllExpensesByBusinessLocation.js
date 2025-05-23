@@ -17,7 +17,9 @@ exports.getAllExpensesByBusinessLocation = async (req, res) => {
         })
         .populate('category')
         .populate('businessLocation')
-        .populate('contact');
+        .populate('contact')
+        .populate('addedBy', 'name _id')
+      .populate('linkedAccount');
 
         res.status(200).json({ expenses });
     } catch (err) {

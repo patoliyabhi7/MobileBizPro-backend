@@ -7,10 +7,12 @@ const generateReferenceNo = async () => {
 
 exports.addExpense = async (req, res) => {
   try {
+    req.body.addedBy = req.user.userId;
     const referenceNo = req.body.referenceNo || await generateReferenceNo();
     const expense = new Expense({ ...req.body, referenceNo });
     await expense.save();
-    res.status(201).json({ message: 'Expense created successfully', expense });
+    const populatedExpense = await Expense.findById(expense._id).populate('linkedAccount').populate('addedBy', 'name _id');
+    res.status(201).json({ message: 'Expense created successfully', populatedExpense });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
