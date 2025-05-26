@@ -6,6 +6,7 @@ require('dotenv').config();
 
 const app = express();
 connectDB();
+require('./cron/recurringExpenseJob');
 
 // Middlewares
 app.use(cors({

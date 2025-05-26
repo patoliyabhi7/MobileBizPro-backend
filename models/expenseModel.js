@@ -12,9 +12,10 @@ const paymentSchema = new mongoose.Schema({
 const expenseSchema = new mongoose.Schema({
   referenceNo: { type: String, required: true, unique: true },
   transactionDate: { type: Date, required: true },
+  isRefund: { type: Boolean, default: false },
   isRecurring: { type: Boolean, default: false },
   recurInterval: { type: Number },
-  recurIntervalType: { type: String, enum: ['days', 'months'] },
+  recurIntervalType: { type: String, enum: ['days', 'months', 'years'] },
   recurRepetitions: { type: Number },
   recurParentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Expense' },
   category: { type: mongoose.Schema.Types.ObjectId, ref: 'ExpenseCategory', required: true },
@@ -33,5 +34,17 @@ const expenseSchema = new mongoose.Schema({
   linkedAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
   isDeleted: { type: Boolean, default: false }
 }, { timestamps: true });
+
+// Remove recurring fields if isRefund is true
+expenseSchema.pre('save', function (next) {
+  if (this.isRefund) {
+    this.isRecurring = false;
+    this.recurInterval = undefined;
+    this.recurIntervalType = undefined;
+    this.recurRepetitions = undefined;
+    this.recurParentId = undefined;
+  }
+  next();
+});
 
 module.exports = mongoose.model('Expense', expenseSchema);
