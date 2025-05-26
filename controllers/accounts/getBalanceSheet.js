@@ -5,7 +5,9 @@ const Purchase = require('../../models/purchaseModel');
 
 exports.getBalanceSheet = async (req, res) => {
   try {
-    const businessLocationId = req.query.businessLocationId;
+    let businessLocationId = req.query.businessLocationId;
+    if (businessLocationId === 'All locations') businessLocationId = undefined;
+
     const date = new Date(req.query.date);
 
     // Account balances
@@ -82,7 +84,10 @@ exports.getBalanceSheet = async (req, res) => {
       }
     };
 
-    res.json(balanceSheet);
+    res.status(200).json({
+      location: businessLocationId || 'All locations',
+      ...balanceSheet
+    });
   } catch (error) {
     console.error('Balance sheet error:', error);
     res.status(500).json({ message: 'Internal server error' });
