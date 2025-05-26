@@ -5,10 +5,11 @@ exports.addPurchase = async (req, res) => {
   try {
     const referenceNo = req.body.referenceNo || await generateAutoId('PUR');
     req.body.addedBy = req.user.userId;
-
+    const filePaths = req.files?.map(file => `uploads/${file.filename}`) || [];
     const purchase = new Purchase({
       ...req.body,
-      referenceNo
+      referenceNo,
+      documents: filePaths
     });
 
     await purchase.save();

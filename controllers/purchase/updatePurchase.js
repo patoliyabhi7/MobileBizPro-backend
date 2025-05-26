@@ -2,6 +2,18 @@ const Purchase = require('../../models/purchaseModel');
 
 exports.updatePurchase = async (req, res) => {
   try {
+    if (req.files && req.files.length > 0) {
+      // Delete existing files
+      if (expense.documents && expense.documents.length > 0) {
+        expense.documents.forEach(doc => {
+          if (fs.existsSync(doc)) fs.unlinkSync(doc);
+        });
+      }
+    
+      // Add new files
+      expense.documents = req.files.map(file => file.path);
+    }
+    req.body.addedBy = req.user.userId;
     const updatedPurchase = await Purchase.findByIdAndUpdate(
       req.params.id,
       req.body,

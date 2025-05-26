@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const upload = require('../middlewares/upload.js');
+const { uploadSingle } = require('../middlewares/upload.js');
 
 const { registerUser } = require('../controllers/user/register');
 const { loginUser } = require('../controllers/user/login');
@@ -12,9 +12,9 @@ const { getAllUsers } = require('../controllers/user/getAllUsers');
 
 // Public routes
 router.get('/all-users', protect, getAllUsers);
-router.post('/register', upload.single('profilePhoto'), registerUser);
+router.post('/register', uploadSingle('profilePhoto'), registerUser);
 router.post('/login', loginUser);
 router.put('/change-password', protect, changePassword);
-router.put('/edit-profile', protect, upload.single('profilePhoto'), editProfile);
+router.put('/edit-profile', protect, uploadSingle('profilePhoto'), editProfile);
 
 module.exports = router;

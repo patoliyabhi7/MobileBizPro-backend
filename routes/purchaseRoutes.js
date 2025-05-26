@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { uploadMultiple } = require('../middlewares/upload.js');
 const { protect } = require('../middlewares/auth');
 const { authorizeRoles } = require('../middlewares/role');
 
@@ -12,11 +13,11 @@ const { updatePurchase } = require('../controllers/purchase/updatePurchase');
 const { getAllPurchasesByBusinessLocation } = require('../controllers/purchase/getAllPurchasesByBusinessLocation');
 
 router.get('/', protect, listPurchases);
-router.post('/', protect, authorizeRoles('admin'), addPurchase);
+router.post('/', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), addPurchase);
 router.get('/returns', protect, listPurchaseReturns);
 router.get('/location/:locationId', protect, getAllPurchasesByBusinessLocation);
 router.get('/:id', protect, getPurchaseById);
-router.put('/:id', protect, authorizeRoles('admin'), updatePurchase);
+router.put('/:id', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), updatePurchase);
 router.delete('/:id', protect, authorizeRoles('admin'), deletePurchase);
 
 module.exports = router;

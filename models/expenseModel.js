@@ -23,7 +23,7 @@ const expenseSchema = new mongoose.Schema({
   businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
   expenseFor: String,
   contact: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact' },
-  document: String,
+  documents: [{ type: String }],
   tax: Number,
   totalAmount: { type: Number, required: true },
   payments: [paymentSchema],
