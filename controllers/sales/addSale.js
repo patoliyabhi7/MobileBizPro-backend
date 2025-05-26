@@ -1,19 +1,9 @@
 const Sale = require('../../models/saleModel');
-
-const generateInvoiceNumber = async () => {
-  const lastSale = await Sale.findOne().sort({ createdAt: -1 });
-  let invoiceNumber = '00001';
-  if (lastSale && lastSale.invoiceNo) {
-    const lastNumber = parseInt(lastSale.invoiceNo, 10);
-    const nextNumber = lastNumber + 1;
-    invoiceNumber = String(nextNumber).padStart(4, '0');
-  }
-  return invoiceNumber;
-};
+const generateAutoId = require('../../utils/generateAutoId');
 
 exports.addSale = async (req, res) => {
   try {
-    const invoiceNo = await generateInvoiceNumber();
+    const invoiceNo = req.body.invoiceNo || await generateAutoId('INV');
     req.body.addedBy = req.user.userId;
     const saleData = { ...req.body, invoiceNo };
     const sale = new Sale(saleData);
