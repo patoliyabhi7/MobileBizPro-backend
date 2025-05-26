@@ -4,7 +4,7 @@ exports.getAccountById = async (req, res) => {
     try {
       const account = await Account.findById(req.params.id);
       if (!account) return res.status(404).json({ error: 'Account not found' });
-      res.status(200).json(account.populate('addedBy', 'name _id'));
+      res.status(200).json(account.populate('addedBy', 'name _id').populate('account_type'));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

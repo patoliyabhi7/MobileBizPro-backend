@@ -5,7 +5,7 @@ exports.addAccount = async (req, res) => {
     req.body.addedBy = req.user.userId;
     const account = new Account(req.body);
     await account.save();
-    res.status(201).json(account.populate('addedBy', 'name _id'));
+    res.status(201).json((await account.populate('addedBy', 'name _id')).populate('account_type'));
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

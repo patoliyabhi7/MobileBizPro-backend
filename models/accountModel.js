@@ -3,8 +3,7 @@ const mongoose = require('mongoose');
 const accountSchema = new mongoose.Schema({
   name: { type: String, required: true },
   account_number: { type: String, required: true },
-  account_type: { type: String, required: true }, // e.g., "Cash" or "Bank"
-  account_type_id: { type: Number, required: true },
+  account_type: { type: mongoose.Schema.Types.ObjectId, ref: 'AccountType', required: true },
   account_details: { type: String },
   balance: { type: Number, default: 0 },
   businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
