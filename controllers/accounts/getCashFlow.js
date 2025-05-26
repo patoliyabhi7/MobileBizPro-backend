@@ -7,7 +7,9 @@ const FundTransfer = require('../../models/fundTransferModel');
 exports.getCashFlow = async (req, res) => {
   try {
     const { account_id, location_id, account_type, start_date, end_date } = req.query;
-    if (account_id === 'all') account_id = undefined;
+    if (account_id === 'All') account_id = undefined;
+    if (location_id === 'All locations') location_id = undefined;
+    if (account_type === 'All') account_type = undefined;
     let runningBalance = 0;
     let totalCredit = 0;
     let totalDebit = 0;
@@ -153,9 +155,9 @@ exports.getCashFlow = async (req, res) => {
     const opening_balance = entries.length > 0 ? parseFloat(entries[0].balance) - (parseFloat(entries[0].credit || 0) - parseFloat(entries[0].debit || 0)) : 0;
 
     res.status(200).json({
-      account_id: account_id || 'all',
-      location_id,
-      account_type,
+      account_id: account_id || 'All',
+      location_id: location_id || 'All locations',
+      account_type: account_type || 'All',
       start_date,
       end_date,
       total_credit: totalCredit.toFixed(2),
