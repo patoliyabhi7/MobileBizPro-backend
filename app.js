@@ -41,8 +41,8 @@ app.use('/api/suppliers', supplierRoutes);
 const customerRoutes = require('./routes/customerRoutes');
 app.use('/api/customers', customerRoutes);
 
-const importRoutes = require('./routes/importContactRoutes');
-app.use('/api/contacts/import', importRoutes);
+const contactRoutes = require('./routes/contactRoutes');
+app.use('/api/contacts', contactRoutes);
 
 const purchaseRoutes = require('./routes/purchaseRoutes');
 app.use('/api/purchases', purchaseRoutes);
