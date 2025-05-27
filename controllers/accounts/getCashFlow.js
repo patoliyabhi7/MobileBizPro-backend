@@ -81,8 +81,8 @@ exports.getCashFlow = async (req, res) => {
       pushEntry({
         date: dep.createdAt,
         description: `Deposit - Ref: ${dep.ref_no || '-'}`,
-        method: dep.payment_method,
-        details: dep.payment_details,
+        method: dep.payment_method || '',
+        details: dep.payment_details || '',
         credit: parseFloat(dep.amount),
         debit: 0
       });
@@ -93,8 +93,8 @@ exports.getCashFlow = async (req, res) => {
       pushEntry({
         date: tr.createdAt,
         description: `Fund Transfer Received from A/C ${tr.from_account}`,
-        method: tr.payment_method,
-        details: tr.payment_details,
+        method: tr.payment_method || '',
+        details: tr.payment_details || '',
         credit: parseFloat(tr.amount),
         debit: 0
       });
@@ -104,8 +104,8 @@ exports.getCashFlow = async (req, res) => {
       pushEntry({
         date: tr.createdAt,
         description: `Fund Transfer Sent to A/C ${tr.to_account}`,
-        method: tr.payment_method,
-        details: tr.payment_details,
+        method: tr.payment_method || '',
+        details: tr.payment_details || '',
         credit: 0,
         debit: parseFloat(tr.amount)
       });
@@ -116,10 +116,10 @@ exports.getCashFlow = async (req, res) => {
       sale.payments?.forEach(pay => {
         if (!account_id || pay.account == account_id) {
           pushEntry({
-            date: sale.transaction_date,
+            date: sale.saleDate,
             description: `Sale - Invoice: ${sale.invoiceNo || ''}`,
             method: pay.method || '',
-            details: pay.payment_details || '',
+            details: pay.note || '',
             credit: parseFloat(pay.amount || 0),
             debit: 0
           });
@@ -148,8 +148,8 @@ exports.getCashFlow = async (req, res) => {
       exp.payments?.forEach(pay => {
         if (!account_id || pay.account == account_id) {
           pushEntry({
-            date: exp.date,
-            description: `Expense - ${exp.expense_category || 'General'}`,
+            date: exp.transactionDate,
+            description: `Expense - ${exp.category.name || 'General'}`,
             method: pay.method || '',
             details: pay.payment_details || '',
             credit: 0,
