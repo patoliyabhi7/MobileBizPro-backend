@@ -5,7 +5,7 @@ exports.getAllExpenses = async (req, res) => {
       const expenses = await Expense.find({ isDeleted: false })
         .populate('category')
         .populate('businessLocation')
-        .populate('contact')
+        .populate('expenseForContact')
         .populate('addedBy', 'name _id')
       .populate('linkedAccount');
       res.status(200).json(expenses);
