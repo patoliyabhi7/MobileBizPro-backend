@@ -36,7 +36,7 @@ const saleSchema = new mongoose.Schema({
   shippingDetails: String,
   payments: [paymentSchema],
   total: { type: Number, required: true },
-  status: { type: String, enum: ['completed', 'pending'], default: 'completed' },
+  status: { type: String, enum: ['completed', 'pending', 'return'], default: 'completed' },
   paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
   shippingStatus: { type: String, enum: ['shipped', 'pending'], default: 'pending' },
   totalItems: { type: Number },

@@ -6,10 +6,11 @@ const FundTransfer = require('../../models/fundTransferModel');
 
 exports.getCashFlow = async (req, res) => {
   try {
-    const { account_id, location_id, account_type, start_date, end_date } = req.query;
+    let { account_id, location_id, account_type, start_date, end_date } = req.query;
     if (account_id === 'All') account_id = undefined;
     if (location_id === 'All locations') location_id = undefined;
     if (account_type === 'All') account_type = undefined;
+
     let runningBalance = 0;
     let totalCredit = 0;
     let totalDebit = 0;
@@ -49,7 +50,6 @@ exports.getCashFlow = async (req, res) => {
       }
     };
 
-    // Fetch in parallel
     const [deposits, transfersOut, transfersIn, sales, purchases, expenses] = await Promise.all([
       Deposit.find({
         ...(account_id && { to_account: account_id }),
@@ -64,15 +64,14 @@ exports.getCashFlow = async (req, res) => {
         ...(location_id && { businessLocation: location_id })
       }),
       Sale.find({
-        ...(account_id && { linkedAccount: account_id }),
-        ...(location_id && { businessLocation: location_id })
+        ...(location_id && { businessLocation: location_id }),
+        ...({ status: { $ne: 'return' } })
       }),
       Purchase.find({
-        ...(account_id && { linkedAccount: account_id }),
-        ...(location_id && { businessLocation: location_id })
+        ...(location_id && { businessLocation: location_id }),
+        ...({ status: { $ne: 'return' } })
       }),
       Expense.find({
-        ...(account_id && { linkedAccount: account_id }),
         ...(location_id && { businessLocation: location_id })
       }),
     ]);
@@ -89,7 +88,7 @@ exports.getCashFlow = async (req, res) => {
       });
     });
 
-    // Fund Transfers IN
+    // Fund Transfers
     transfersIn.forEach(tr => {
       pushEntry({
         date: tr.createdAt,
@@ -101,7 +100,6 @@ exports.getCashFlow = async (req, res) => {
       });
     });
 
-    // Fund Transfers OUT
     transfersOut.forEach(tr => {
       pushEntry({
         date: tr.createdAt,
@@ -113,46 +111,59 @@ exports.getCashFlow = async (req, res) => {
       });
     });
 
-    // Sales (IN)
+    // Sales
     sales.forEach(sale => {
-      pushEntry({
-        date: sale.transaction_date,
-        description: `Sale - Invoice: ${sale.invoice_no || ''}`,
-        method: sale.payment_method || '',
-        details: sale.payment_details || '',
-        credit: parseFloat(sale.paid_amount || sale.final_total || 0),
-        debit: 0
+      sale.payments?.forEach(pay => {
+        if (!account_id || pay.account == account_id) {
+          pushEntry({
+            date: sale.transaction_date,
+            description: `Sale - Invoice: ${sale.invoiceNo || ''}`,
+            method: pay.method || '',
+            details: pay.payment_details || '',
+            credit: parseFloat(pay.amount || 0),
+            debit: 0
+          });
+        }
       });
     });
 
-    // Purchases (OUT)
+    // Purchases
     purchases.forEach(pur => {
-      pushEntry({
-        date: pur.purchaseDate || pur.transaction_date,
-        description: `Purchase - Ref: ${pur.referenceNo || pur.ref_no || ''}`,
-        method: pur.payment_method || '',
-        details: pur.payment_details || '',
-        credit: 0,
-        debit: parseFloat(pur.total || 0)
+      pur.payments?.forEach(pay => {
+        if (!account_id || pay.account == account_id) {
+          pushEntry({
+            date: pur.purchaseDate || pur.transaction_date,
+            description: `Purchase - Ref: ${pur.referenceNo || pur.ref_no || ''}`,
+            method: pay.method || '',
+            details: pay.payment_details || '',
+            debit: parseFloat(pay.amount || 0),
+            credit: 0
+          });
+        }
       });
     });
 
-    // Expenses (OUT)
+    // Expenses
     expenses.forEach(exp => {
-      pushEntry({
-        date: exp.date,
-        description: `Expense - ${exp.expense_category || 'General'}`,
-        method: exp.payment_method || '',
-        details: exp.payment_details || '',
-        credit: 0,
-        debit: parseFloat(exp.amount)
+      exp.payments?.forEach(pay => {
+        if (!account_id || pay.account == account_id) {
+          pushEntry({
+            date: exp.date,
+            description: `Expense - ${exp.expense_category || 'General'}`,
+            method: pay.method || '',
+            details: pay.payment_details || '',
+            credit: 0,
+            debit: parseFloat(pay.amount || 0)
+          });
+        }
       });
     });
 
-    // Sort by date ascending
     entries.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    const opening_balance = entries.length > 0 ? parseFloat(entries[0].balance) - (parseFloat(entries[0].credit || 0) - parseFloat(entries[0].debit || 0)) : 0;
+    const opening_balance = entries.length > 0
+      ? parseFloat(entries[0].balance) - (parseFloat(entries[0].credit || 0) - parseFloat(entries[0].debit || 0))
+      : 0;
 
     res.status(200).json({
       account_id: account_id || 'All',
