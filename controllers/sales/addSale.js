@@ -1,5 +1,6 @@
 const Sale = require('../../models/saleModel');
 const generateAutoId = require('../../utils/generateAutoId');
+const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 
 exports.addSale = async (req, res) => {
   try {
@@ -28,7 +29,10 @@ exports.addSale = async (req, res) => {
     const saleData = { ...req.body, invoiceNo, documents: filePaths, payments };
     const sale = new Sale(saleData);
     await sale.save();
-    const populatedSale = await Sale.findById(sale._id).populate('linkedAccount').populate('addedBy', 'name _id');
+    if (sale.payments && sale.payments.length > 0) {
+      await updateAccountBalances(sale.payments, 'sale');
+    }
+    const populatedSale = await Sale.findById(sale._id).populate('payments.account').populate('addedBy', 'name _id');
     res.status(201).json({ message: 'Sale added successfully', populatedSale });
   } catch (err) {
     res.status(500).json({ error: err.message });

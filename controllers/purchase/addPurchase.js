@@ -1,5 +1,6 @@
 const Purchase = require('../../models/purchaseModel');
 const generateAutoId = require('../../utils/generateAutoId');
+const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 
 exports.addPurchase = async (req, res) => {
   try {
@@ -34,7 +35,10 @@ exports.addPurchase = async (req, res) => {
     });
 
     await purchase.save();
-    const populatedPurchase = await Purchase.findById(purchase._id).populate('linkedAccount').populate('addedBy', 'name _id');
+    if (purchase.payments && purchase.payments.length > 0) {
+      await updateAccountBalances(purchase.payments, 'purchase');
+    }
+    const populatedPurchase = await Purchase.findById(purchase._id).populate('payments.account').populate('addedBy', 'name _id');
     res.status(201).json({ message: 'Purchase added successfully', populatedPurchase });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -1,5 +1,6 @@
 const Expense = require('../../models/expenseModel');
 const generateAutoId = require('../../utils/generateAutoId');
+const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 
 exports.addExpense = async (req, res) => {
   try {
@@ -27,7 +28,10 @@ exports.addExpense = async (req, res) => {
     }
     const expense = new Expense({ ...req.body, referenceNo, documents: filePaths, payments });
     await expense.save();
-    const populatedExpense = await Expense.findById(expense._id).populate('linkedAccount').populate('addedBy', 'name _id');
+    if (expense.payments && expense.payments.length > 0) {
+      await updateAccountBalances(expense.payments, 'expense');
+    }
+    const populatedExpense = await Expense.findById(expense._id).populate('payments.account').populate('addedBy', 'name _id');
     res.status(201).json({ message: 'Expense created successfully', populatedExpense });
   } catch (err) {
     res.status(500).json({ error: err.message });

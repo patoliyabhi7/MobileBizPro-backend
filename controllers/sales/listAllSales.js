@@ -6,7 +6,7 @@ exports.listAllSales = async (req, res) => {
         .populate('customer')
         .populate('businessLocation')
         .populate('addedBy', 'name _id')
-      .populate('linkedAccount');
+      .populate('payments.account');
       res.status(200).json(sales);
     } catch (err) {
       res.status(500).json({ error: err.message });

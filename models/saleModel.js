@@ -14,9 +14,9 @@ const saleProductSchema = new mongoose.Schema({
 const paymentSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   paidOn: { type: Date, required: true },
-  method: { type: String, required: true },
+  method: { type: mongoose.Schema.Types.ObjectId, ref: 'AccountType' },
   paymentDue: { type: Number },
-  account: String,
+  account: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
   bankAccountNo: { type: String },
   note: String
 });

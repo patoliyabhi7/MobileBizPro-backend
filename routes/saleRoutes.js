@@ -10,11 +10,13 @@ const { getSaleById } = require('../controllers/sales/getSaleById');
 const { updateSale } = require('../controllers/sales/updateSale');
 const { deleteSale } = require('../controllers/sales/deleteSale');
 const { listSaleReturns } = require('../controllers/sales/listSaleReturns');
+const { addSaleReturn } = require('../controllers/sales/addSaleReturn');
 const { getAllSalesByBusinessLocation } = require('../controllers/sales/getAllSalesByBusinessLocation');
 
 router.get('/', protect, listAllSales);
 router.post('/', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), addSale);
 router.get('/returns', protect, listSaleReturns);
+router.post('/sale-return', protect, authorizeRoles('admin'), addSaleReturn);
 router.get('/location/:locationId', protect, getAllSalesByBusinessLocation);
 router.get('/:id', protect, getSaleById);
 router.put('/:id', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), updateSale);

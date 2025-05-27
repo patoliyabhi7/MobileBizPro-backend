@@ -1,44 +1,76 @@
 const Expense = require('../../models/expenseModel');
+const { updateAccountBalances } = require('../../utils/updateAccountBalance');
+const { revertAccountBalances } = require('../../utils/revertAccountBalances');
 
 exports.updateExpense = async (req, res) => {
-    try {
-      if (req.files && req.files.length > 0) {
-        // Delete existing files
-        if (expense.documents && expense.documents.length > 0) {
-          expense.documents.forEach(doc => {
-            if (fs.existsSync(doc)) fs.unlinkSync(doc);
-          });
-        }
-      
-        // Add new files
-        expense.documents = req.files.map(file => file.path);
-      }   
-      if ('payments' in req.body) {
-        let payments = [];
-      
-        if (typeof req.body.payments === 'string') {
-          try {
-            payments = JSON.parse(req.body.payments);
-          } catch (e) {
-            return res.status(400).json({ error: 'Invalid payments format' });
-          }
-        } else if (Array.isArray(req.body.payments)) {
-          payments = req.body.payments;
-        }
-      
-        // Format dates
-        payments = payments.map(p => ({
-          ...p,
-          paidOn: new Date(p.paidOn),
-        }));
-      
-        req.body.payments = payments;
-      }   
-      req.body.addedBy = req.user.userId;
-      const expense = await Expense.findByIdAndUpdate(req.params.id, req.body, { new: true });
-      if (!expense || expense.isDeleted) return res.status(404).json({ message: 'Expense not found' });
-      res.status(200).json(expense.populate('addedBy', 'name _id'));
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+  try {
+    // Step 1: Fetch the old expense
+    const oldExpense = await Expense.findById(req.params.id);
+    if (!oldExpense || oldExpense.isDeleted) {
+      return res.status(404).json({ message: 'Expense not found or deleted' });
     }
-  };
+
+    // Step 2: Handle documents
+    if (req.files && req.files.length > 0) {
+      // Delete old files
+      if (oldExpense.documents && oldExpense.documents.length > 0) {
+        oldExpense.documents.forEach(doc => {
+          if (fs.existsSync(doc)) fs.unlinkSync(doc);
+        });
+      }
+
+      // Assign new file paths
+      req.body.documents = req.files.map(file => `uploads/${file.filename}`);
+    }
+
+    // Step 3: Parse and format payments
+    if ('payments' in req.body) {
+      let payments = [];
+
+      if (typeof req.body.payments === 'string') {
+        try {
+          payments = JSON.parse(req.body.payments);
+        } catch (e) {
+          return res.status(400).json({ error: 'Invalid payments format' });
+        }
+      } else if (Array.isArray(req.body.payments)) {
+        payments = req.body.payments;
+      }
+
+      payments = payments.map(p => ({
+        ...p,
+        paidOn: new Date(p.paidOn),
+      }));
+
+      req.body.payments = payments;
+    }
+
+    req.body.addedBy = req.user.userId;
+
+    // Step 4: Revert old balances
+    await revertAccountBalances(oldExpense.payments, 'expense');
+
+    // Step 5: Update the expense
+    const updatedExpense = await Expense.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    ).populate('addedBy', 'name _id').populate('payments.account').populate('category')
+    .populate('businessLocation')
+    .populate('expenseForContact');
+
+    if (!updatedExpense) {
+      return res.status(404).json({ message: 'Expense not found after update' });
+    }
+
+    // Step 6: Update new balances
+    if (req.body.payments && req.body.payments.length > 0) {
+      await updateAccountBalances(req.body.payments, 'expense');
+    }
+
+    res.status(200).json(updatedExpense);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};

@@ -6,7 +6,7 @@ exports.listPurchaseReturns = async (req, res) => {
       .populate('supplier', 'businessName firstName lastName')
       .populate('businessLocation', 'name')
       .populate('addedBy', 'name _id')
-      .populate('linkedAccount');
+      .populate('payments.account');
 
     res.status(200).json(returns);
   } catch (err) {

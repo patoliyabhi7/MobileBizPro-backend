@@ -7,7 +7,7 @@ exports.getPurchaseById = async (req, res) => {
       .populate('businessLocation', 'name')
       .populate('products.product', 'productName')
       .populate('addedBy', 'name _id')
-      .populate('linkedAccount');
+      .populate('payments.account');
 
     if (!purchase || purchase.isDeleted) {
       return res.status(404).json({ message: 'Purchase not found' });
