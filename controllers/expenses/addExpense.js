@@ -6,7 +6,26 @@ exports.addExpense = async (req, res) => {
     req.body.addedBy = req.user.userId;
     const referenceNo = req.body.referenceNo || await generateAutoId('EXP');
     const filePaths = req.files?.map(file => `uploads/${file.filename}`) || [];
-    const expense = new Expense({ ...req.body, referenceNo, documents: filePaths });
+    // If payments are sent as JSON string (common in multipart form-data), parse them
+    let payments = [];
+    if (req.body.payments) {
+      if (typeof req.body.payments === 'string') {
+        try {
+          payments = JSON.parse(req.body.payments);
+        } catch (e) {
+          return res.status(400).json({ error: 'Invalid payments format' });
+        }
+      } else if (Array.isArray(req.body.payments)) {
+        payments = req.body.payments;
+      }
+    
+      // Format date fields
+      payments = payments.map(p => ({
+        ...p,
+        paidOn: new Date(p.paidOn),
+      }));
+    }
+    const expense = new Expense({ ...req.body, referenceNo, documents: filePaths, payments });
     await expense.save();
     const populatedExpense = await Expense.findById(expense._id).populate('linkedAccount').populate('addedBy', 'name _id');
     res.status(201).json({ message: 'Expense created successfully', populatedExpense });
