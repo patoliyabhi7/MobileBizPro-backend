@@ -2,7 +2,7 @@ const multer = require('multer');
 const path = require('path');
 
 // Allowed extensions
-const allowedExtensions = /jpeg|jpg|png|gif|pdf|doc|docx/;
+const allowedExtensions = /jpeg|jpg|png|gif|pdf|doc|docx|csv|zip/;
 
 // Storage configuration
 const storage = multer.diskStorage({
