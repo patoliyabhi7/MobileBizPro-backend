@@ -9,10 +9,13 @@ exports.addPurchaseReturn = async (req, res) => {
       return res.status(400).json({ error: 'purchaseId is required' });
     }
 
+    
     const purchase = await Purchase.findById(purchaseId).lean();
     if (!purchase || purchase.isDeleted) {
       return res.status(404).json({ error: 'Purchase not found' });
     }
+    
+    await Purchase.findByIdAndUpdate(purchaseId, { status: 'return' });
 
     const payments = purchase.payments || [];
     const returnAmount = payments.reduce((sum, p) => sum + (p.amount || 0), 0);

@@ -9,11 +9,14 @@ exports.addSaleReturn = async (req, res) => {
       return res.status(400).json({ error: 'saleId is required' });
     }
 
+    
     const sale = await Sale.findById(saleId).lean();
     if (!sale || sale.isDeleted) {
       return res.status(404).json({ error: 'Sale not found' });
     }
-
+    
+    await Sale.findByIdAndUpdate(saleId, { status: 'return' });
+    
     const payments = sale.payments || [];
     const returnAmount = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
