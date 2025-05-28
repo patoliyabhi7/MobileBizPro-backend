@@ -44,7 +44,6 @@ const saleSchema = new mongoose.Schema({
   typesOfService: String,
   businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  linkedAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
   isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });
 

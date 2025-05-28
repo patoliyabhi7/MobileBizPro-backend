@@ -7,7 +7,7 @@ exports.listPurchaseReturns = async (req, res) => {
       .populate('businessLocation', 'name')
       .populate('addedBy', 'name _id')
       .populate('products.product', 'productName')
-      .populate('payments.account');
+      .populate('payments.account').populate('payments.method');
 
     res.status(200).json(returns);
   } catch (err) {

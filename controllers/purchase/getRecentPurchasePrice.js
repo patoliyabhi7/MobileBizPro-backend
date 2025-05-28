@@ -1,10 +1,10 @@
-const Purchase = require('../../models/purchaseModel'); 
+const Purchase = require('../../models/purchaseModel');
 
 exports.getRecentPurchasePrice = async (req, res) => {
   try {
     const { productId } = req.params;
 
-    const latestPurchase = await Purchase.findOne({ 'products._id': productId })
+    const latestPurchase = await Purchase.findOne({ 'products.product': productId })
       .sort({ createdAt: -1 })
       .select('products')
       .lean();
@@ -13,14 +13,19 @@ exports.getRecentPurchasePrice = async (req, res) => {
       return res.status(404).json({ message: 'No purchase found for this product.' });
     }
 
-    const productEntry = latestPurchase.products.find(p => p._id.toString() === productId);
+    const productEntry = latestPurchase.products.find(p =>
+      p.product.toString() === productId
+    );
 
     if (!productEntry) {
       return res.status(404).json({ message: 'Product not found in the most recent purchase.' });
     }
 
-    res.status(200).json({ purchasePrice: productEntry.total });
+    return res.status(200).json({
+      purchasePrice: productEntry.unitCost
+    });
   } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
+    console.error('Error fetching recent purchase price:', err);
+    return res.status(500).json({ message: 'Server error', error: err.message });
   }
 };

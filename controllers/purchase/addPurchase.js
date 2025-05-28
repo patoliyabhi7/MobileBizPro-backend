@@ -41,7 +41,12 @@ exports.addPurchase = async (req, res) => {
     if (purchase.payments && purchase.payments.length > 0) {
       await updateAccountBalances(purchase.payments, 'purchase');
     }
-    const populatedPurchase = await Purchase.findById(purchase._id).populate('payments.account').populate('addedBy', 'name _id');
+    const populatedPurchase = await Purchase.findById(purchase._id).populate('supplier', 'businessName firstName lastName')
+    .populate('businessLocation', 'name')
+    .populate('products.product', 'productName')
+    .populate('addedBy', 'name _id')
+    .populate('payments.account')
+    .populate('payments.method');
     res.status(201).json({ message: 'Purchase added successfully', populatedPurchase });
   } catch (err) {
     res.status(500).json({ error: err.message });

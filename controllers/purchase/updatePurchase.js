@@ -1,6 +1,7 @@
 const Purchase = require('../../models/purchaseModel');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 const { revertAccountBalances } = require('../../utils/revertAccountBalances');
+const generateAutoId = require('../../utils/generateAutoId');
 
 exports.updatePurchase = async (req, res) => {
   try {
@@ -61,7 +62,7 @@ exports.updatePurchase = async (req, res) => {
       { new: true }
     ).populate('addedBy', 'name _id').populate('payments.account').populate('supplier', 'businessName firstName lastName')
     .populate('businessLocation', 'name')
-    .populate('products.product', 'productName');
+    .populate('products.product', 'productName').populate('payments.method');
 
     if (!updatedPurchase) {
       return res.status(404).json({ message: 'Purchase not found after update' });

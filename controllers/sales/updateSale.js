@@ -1,6 +1,7 @@
 const Sale = require('../../models/saleModel');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 const { revertAccountBalances } = require('../../utils/revertAccountBalances');
+const generateAutoId = require('../../utils/generateAutoId');
 
 exports.updateSale = async (req, res) => {
   try {

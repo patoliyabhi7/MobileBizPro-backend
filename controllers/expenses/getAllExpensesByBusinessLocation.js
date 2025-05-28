@@ -15,11 +15,7 @@ exports.getAllExpensesByBusinessLocation = async (req, res) => {
             businessLocation: locationId,
             isDeleted: false
         })
-        .populate('category')
-        .populate('businessLocation')
-        .populate('expenseForContact')
-        .populate('addedBy', 'name _id')
-      .populate('payments.account');
+        .populate('category').populate('businessLocation').populate('expenseFor').populate('expenseForContact').populate('payments.account').populate('addedBy', 'name _id');
 
         res.status(200).json({ expenses });
     } catch (err) {

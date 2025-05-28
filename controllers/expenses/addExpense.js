@@ -34,7 +34,7 @@ exports.addExpense = async (req, res) => {
     if (expense.payments && expense.payments.length > 0) {
       await updateAccountBalances(expense.payments, 'expense');
     }
-    const populatedExpense = await Expense.findById(expense._id).populate('payments.account').populate('addedBy', 'name _id');
+    const populatedExpense = await Expense.findById(expense._id).populate('category').populate('businessLocation').populate('expenseFor').populate('expenseForContact').populate('payments.account').populate('addedBy', 'name _id');
     res.status(201).json({ message: 'Expense created successfully', populatedExpense });
   } catch (err) {
     res.status(500).json({ error: err.message });

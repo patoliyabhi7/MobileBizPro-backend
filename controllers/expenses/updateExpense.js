@@ -58,9 +58,7 @@ exports.updateExpense = async (req, res) => {
       req.params.id,
       req.body,
       { new: true }
-    ).populate('addedBy', 'name _id').populate('payments.account').populate('category')
-    .populate('businessLocation')
-    .populate('expenseForContact');
+    ).populate('category').populate('businessLocation').populate('expenseFor').populate('expenseForContact').populate('payments.account').populate('addedBy', 'name _id');
 
     if (!updatedExpense) {
       return res.status(404).json({ message: 'Expense not found after update' });
