@@ -6,8 +6,8 @@ exports.getSaleById = async (req, res) => {
         .populate('customer')
         .populate('businessLocation')
         .populate('addedBy', 'name _id')
-        .populate('products.product', 'productName')
-      .populate('payments.account');
+        .populate('products.product')
+      .populate('payments.account').populate('payments.method');
       if (!sale || sale.isDeleted) {
         return res.status(404).json({ message: 'Sale not found' });
       }

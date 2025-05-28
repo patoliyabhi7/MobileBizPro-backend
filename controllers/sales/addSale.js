@@ -36,7 +36,7 @@ exports.addSale = async (req, res) => {
       await updateAccountBalances(sale.payments, 'sale');
     }
     const populatedSale = await Sale.findById(sale._id).populate('payments.account').populate('addedBy', 'name _id').populate('customer')
-    .populate('businessLocation');
+    .populate('businessLocation').populate('products.product').populate('payments.method');
     res.status(201).json({ message: 'Sale added successfully', populatedSale });
   } catch (err) {
     res.status(500).json({ error: err.message });

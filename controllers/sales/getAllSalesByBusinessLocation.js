@@ -16,9 +16,9 @@ exports.getAllSalesByBusinessLocation = async (req, res) => {
             isDeleted: false
         }).populate('customer')
         .populate('businessLocation')
-        .populate('products.product', 'productName')
+        .populate('products.product')
         .populate('addedBy', 'name _id')
-        .populate('payments.account');
+        .populate('payments.account').populate('payments.method');
 
         res.status(200).json({ sales });
     } catch (err) {

@@ -4,17 +4,19 @@ exports.getRecentSalePrice = async (req, res) => {
   try {
     const { productId } = req.params;
 
+    // Find the most recent sale that includes the product
     const latestSale = await Sale.findOne({ 'products.product': productId })
       .sort({ createdAt: -1 })
       .select('products')
-      .lean();
+      .lean(); // optional
 
     if (!latestSale) {
       return res.status(404).json({ message: 'No sale found for this product.' });
     }
 
+    // Loop through all products in that sale to find the matching one
     const productEntry = latestSale.products.find(p =>
-      p.product.toString() === productId
+      p.product.toString() === productId // Fix: ensure type-safe string comparison
     );
 
     if (!productEntry) {

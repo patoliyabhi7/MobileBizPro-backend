@@ -59,8 +59,11 @@ exports.updateSale = async (req, res) => {
       req.params.id,
       req.body,
       { new: true }
-    ).populate('addedBy', 'name _id').populate('payments.account').populate('products.product', 'productName').populate('customer')
-    .populate('businessLocation');
+    ).populate('customer')
+    .populate('businessLocation')
+    .populate('addedBy', 'name _id')
+    .populate('products.product')
+  .populate('payments.account').populate('payments.method');
 
     if (!updatedSale) {
       return res.status(404).json({ message: 'Sale not found after update' });

@@ -6,8 +6,8 @@ exports.listSaleReturns = async (req, res) => {
         .populate('customer')
         .populate('businessLocation')
         .populate('addedBy', 'name _id')
-        .populate('products.product', 'productName')
-      .populate('payments.account');
+        .populate('products.product')
+      .populate('payments.account').populate('payments.method');
       res.status(200).json(saleReturns);
     } catch (err) {
       res.status(500).json({ error: err.message });
