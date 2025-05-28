@@ -16,7 +16,7 @@ const { getAllPurchasesByBusinessLocation } = require('../controllers/purchase/g
 router.get('/', protect, listPurchases);
 router.post('/', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), addPurchase);
 router.get('/returns', protect, listPurchaseReturns);
-router.post('/purchase-return', protect, authorizeRoles('admin'), addPurchaseReturn);
+router.post('/purchase-return/:purchaseId', protect, authorizeRoles('admin'), addPurchaseReturn);
 router.get('/location/:locationId', protect, getAllPurchasesByBusinessLocation);
 router.get('/:id', protect, getPurchaseById);
 router.put('/:id', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), updatePurchase);

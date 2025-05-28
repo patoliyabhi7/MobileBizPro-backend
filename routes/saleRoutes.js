@@ -16,7 +16,7 @@ const { getAllSalesByBusinessLocation } = require('../controllers/sales/getAllSa
 router.get('/', protect, listAllSales);
 router.post('/', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), addSale);
 router.get('/returns', protect, listSaleReturns);
-router.post('/sale-return', protect, authorizeRoles('admin'), addSaleReturn);
+router.post('/sale-return/:saleId', protect, authorizeRoles('admin'), addSaleReturn);
 router.get('/location/:locationId', protect, getAllSalesByBusinessLocation);
 router.get('/:id', protect, getSaleById);
 router.put('/:id', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), updateSale);

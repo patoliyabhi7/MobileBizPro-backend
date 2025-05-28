@@ -2,7 +2,7 @@ const Sale = require('../../models/saleModel');
 
 exports.listSaleReturns = async (req, res) => {
     try {
-      const saleReturns = await Sale.find({ isDeleted: false, status: 'returned' })
+      const saleReturns = await Sale.find({ isDeleted: false, status: 'return' })
         .populate('customer')
         .populate('businessLocation')
         .populate('addedBy', 'name _id')

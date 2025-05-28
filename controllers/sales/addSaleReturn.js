@@ -3,7 +3,7 @@ const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 
 exports.addSaleReturn = async (req, res) => {
   try {
-    const { saleId } = req.body;
+    const { saleId } = req.params;
 
     if (!saleId) {
       return res.status(400).json({ error: 'saleId is required' });
@@ -16,7 +16,7 @@ exports.addSaleReturn = async (req, res) => {
     }
     
     await Sale.findByIdAndUpdate(saleId, { status: 'return' });
-    
+
     const payments = sale.payments || [];
     const returnAmount = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
 

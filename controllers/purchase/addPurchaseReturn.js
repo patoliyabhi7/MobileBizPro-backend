@@ -3,7 +3,7 @@ const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 
 exports.addPurchaseReturn = async (req, res) => {
   try {
-    const { purchaseId } = req.body;
+    const { purchaseId } = req.params;
 
     if (!purchaseId) {
       return res.status(400).json({ error: 'purchaseId is required' });
