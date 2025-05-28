@@ -1,125 +1,132 @@
-const Sale = require('../../models/saleModel');
-const Purchase = require('../../models/purchaseModel');
-const Expense = require('../../models/expenseModel');
+const Sale = require('../../models/saleModel');       
+const Purchase = require('../../models/purchaseModel'); 
+const Expense = require('../../models/expenseModel');   
 
-const formatCurrency = (amount) => `₹ ${Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-const formatDate = (date) => new Date(date).toLocaleString('en-IN', { hour12: true });
-const getAccountLabel = (account) => account ? `${account.name} - ${account.account_number}` : '-';
-
-exports.getPaymentsAccountReport = async (req, res) => {
+async function getPaymentsAccountReport(req, res) {
   try {
-    const { businessLocation, date_from, date_to } = req.query;
+    // Fetch sales with populated customer and payments.account
+    const sales = await Sale.find({ isDeleted: false })
+      .populate({
+        path: 'customer',
+        select: 'firstName lastName name contactType',
+      })
+      .populate({
+        path: 'payments.account',
+        select: 'name',
+      })
+      .lean();
 
-    const result = [];
+    // Fetch purchases with populated supplier and payments.account
+    const purchases = await Purchase.find({ isDeleted: false })
+      .populate({
+        path: 'supplier',
+        select: 'firstName lastName name contactType',
+      })
+      .populate({
+        path: 'payments.account',
+        select: 'name',
+      })
+      .lean();
 
-    // Convert string to actual Date objects
-    const from = date_from ? new Date(date_from) : null;
-    const to = date_to ? new Date(date_to) : null;
+    // Fetch expenses with populated expenseForContact and payments.account
+    const expenses = await Expense.find({ isDeleted: false })
+      .populate({
+        path: 'expenseForContact',
+        select: 'firstName lastName name contactType',
+      })
+      .populate({
+        path: 'payments.account',
+        select: 'name',
+      })
+      .lean();
 
-    // Filters for base models
-    const transactionFilter = { status: { $ne: 'return' } };
-    if (businessLocation) transactionFilter.businessLocation = businessLocation;
-
-    // Filters for payments array
-    const paymentDateFilter = (paymentDate) => {
-      if (!paymentDate) return false;
-      const paidDate = new Date(paymentDate);
-      if (from && paidDate < from) return false;
-      if (to && paidDate > to) return false;
-      return true;
+    // Helper to build contact name
+    const getContactName = (contact) => {
+      if (!contact) return null;
+      if (contact.firstName || contact.lastName) {
+        return `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
+      }
+      // fallback to 'name' if exists (sometimes contact might have just 'name' field)
+      return contact.name || null;
     };
 
-    const [sales, purchases, expenses] = await Promise.all([
-      Sale.find(transactionFilter).populate('payments.account contact'),
-      Purchase.find(transactionFilter).populate('payments.account contact'),
-      Expense.find(businessLocation ? { businessLocation } : {}).populate('payments.account contact'),
-    ]);
+    // Map sales to merged format
+    const salesReport = sales.map(sale => ({
+      refNo: sale.invoiceNo,
+      contact: sale.customer ? {
+        _id: sale.customer._id,
+        name: getContactName(sale.customer),
+        type: sale.customer.contactType,
+      } : null,
+      date: sale.saleDate,
+      totalAmount: sale.total,
+      payments: (sale.payments || []).map(p => ({
+        paymentRefNo: p.paymentRefNo,
+        paidDate: p.paidDate,
+        amount: p.amount,
+        account: p.account && p.account._id ? {
+          _id: p.account._id,
+          name: p.account.name
+        } : null,
+      })),
+      sourceType: 'Sell',
+    }));
 
-    const pushFormatted = ({
-      payment,
-      type,
-      invoice_no,
-      contactName,
-      contactType,
-      details,
-      account
-    }) => {
-      if (!payment?.account || !paymentDateFilter(payment.paidOn)) return;
+    // Map purchases to merged format
+    const purchaseReport = purchases.map(purchase => ({
+      refNo: purchase.referenceNo,
+      contact: purchase.supplier ? {
+        _id: purchase.supplier._id,
+        name: getContactName(purchase.supplier),
+        type: purchase.supplier.contactType,
+      } : null,
+      date: purchase.purchaseDate,
+      totalAmount: purchase.total,
+      payments: (purchase.payments || []).map(p => ({
+        paymentRefNo: p.paymentRefNo,
+        paidDate: p.paidDate,
+        amount: p.amount,
+        account: p.account && p.account._id ? {
+          _id: p.account._id,
+          name: p.account.name
+        } : null,
+      })),
+      sourceType: 'Purchase',
+    }));
 
-      result.push({
-        payment_id: payment._id,
-        payment_ref_no: payment.paymentRefNo || '',
-        paid_on: formatDate(payment.paidOn),
-        type,
-        invoice_no: invoice_no || '',
-        amount: formatCurrency(payment.amount),
-        account: getAccountLabel(account),
-        account_id: account._id?.toString() || '',
-        account_name: account.name || '',
-        account_number: account.account_number || '',
-        contact_name: contactName || '',
-        contact_type: contactType || '',
-        details
-      });
-    };
+    // Map expenses to merged format
+    const expenseReport = expenses.map(expense => ({
+      refNo: expense.referenceNo,
+      contact: expense.expenseForContact ? {
+        _id: expense.expenseForContact._id,
+        name: getContactName(expense.expenseForContact),
+        type: expense.expenseForContact.contactType,
+      } : null,
+      date: expense.transactionDate,
+      totalAmount: expense.totalAmount,
+      payments: (expense.payments || []).map(p => ({
+        paymentRefNo: p.paymentRefNo,
+        paidDate: p.paidDate,
+        amount: p.amount,
+        account: p.account && p.account._id ? {
+          _id: p.account._id,
+          name: p.account.name
+        } : null,
+      })),
+      sourceType: 'Expense',
+    }));
 
-    sales.forEach((sale) => {
-      const contactName = sale.contact?.firstName + ' ' + sale.contact?.lastName || '';
-      const contactType = sale.contact?.contactType || 'customer';
-      const details = `<b>Customer:</b> ${contactName}`;
+    // Combine all into one report array
+    const combinedReport = [...salesReport, ...purchaseReport, ...expenseReport];
 
-      sale.payments?.forEach((payment) =>
-        pushFormatted({
-          payment,
-          type: 'Sell',
-          invoice_no: sale.invoiceNo,
-          contactName,
-          contactType,
-          details,
-          account: payment.account
-        })
-      );
-    });
+    // Sort combined by descending date
+    combinedReport.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    purchases.forEach((purchase) => {
-      const contactName = purchase.contact?.firstName + ' ' + purchase.contact?.lastName || '';
-      const contactType = purchase.contact?.contactType || 'supplier';
-      const details = `<b>Supplier:</b> ${contactName}`;
-
-      purchase.payments?.forEach((payment) =>
-        pushFormatted({
-          payment,
-          type: 'Purchase',
-          invoice_no: purchase.referenceNo || purchase.ref_no,
-          contactName,
-          contactType,
-          details,
-          account: payment.account
-        })
-      );
-    });
-
-    expenses.forEach((expense) => {
-      const contactName = expense.contact?.firstName + ' ' + expense.contact?.lastName || '';
-      const contactType = expense.contact?.contactType || 'supplier';
-      const details = `<b>Supplier:</b> ${contactName}`;
-
-      expense.payments?.forEach((payment) =>
-        pushFormatted({
-          payment,
-          type: 'Expense',
-          invoice_no: expense.referenceNo || expense.ref_no,
-          contactName,
-          contactType,
-          details,
-          account: payment.account
-        })
-      );
-    });
-
-    res.status(200).json(result);
-  } catch (err) {
-    console.error('Error generating payment account report:', err);
-    res.status(500).json({ error: 'Failed to fetch report' });
+    res.json(combinedReport);
+  } catch (error) {
+    console.error('Error generating payment account report:', error);
+    res.status(500).json({ error: 'Failed to fetch payment account report' });
   }
-};
+}
+
+module.exports = { getPaymentsAccountReport };

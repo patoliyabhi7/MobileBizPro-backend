@@ -23,6 +23,7 @@ exports.getBalanceSheet = async (req, res) => {
     let customerDue = 0;
     let supplierDue = 0;
     let totalAccountBalance = 0;
+    let accountBalances = [];
     let totalExpense = 0;
 
     // Customer Dues Calculation
@@ -42,8 +43,15 @@ exports.getBalanceSheet = async (req, res) => {
 
     // Account Balances
     accounts.forEach(acc => {
-      if (acc.status !== 'active') return;
-      totalAccountBalance += parseFloat(acc.balance || 0);
+      if (acc.is_active === false) return; // Skip inactive accounts
+
+      const balance = parseFloat(acc.balance || 0);
+      totalAccountBalance += balance;
+
+      accountBalances.push({
+        name: acc.name,
+        balance: balance.toFixed(2)
+      });
     });
 
     // Expenses
@@ -55,6 +63,7 @@ exports.getBalanceSheet = async (req, res) => {
       customer_due: customerDue.toFixed(2),
       supplier_due: supplierDue.toFixed(2),
       account_balance: totalAccountBalance.toFixed(2),
+      account_balances: accountBalances,
       total_expense: totalExpense.toFixed(2),
       date: date || 'Till today',
       location_id: location_id || 'All locations',
