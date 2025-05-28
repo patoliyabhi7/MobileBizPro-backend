@@ -4,18 +4,24 @@ const Expense = require('../../models/expenseModel');
 
 const formatCurrency = (amount) => `₹ ${Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 const formatDate = (date) => new Date(date).toLocaleString('en-IN', { hour12: true });
-
 const getAccountLabel = (account) =>
   account ? `${account.name} - ${account.account_number}` : '-';
 
 exports.getPaymentsAccountReport = async (req, res) => {
   try {
+    const { businessLocation } = req.query; // or req.body if you prefer POST
+
     const result = [];
 
+    const queryFilter = { status: { $ne: 'return' } };
+    if (businessLocation) {
+      queryFilter.businessLocation = businessLocation;
+    }
+
     const [sales, purchases, expenses] = await Promise.all([
-      Sale.find({ status: { $ne: 'return' } }).populate('payments.account contact'),
-      Purchase.find({ status: { $ne: 'return' } }).populate('payments.account contact'),
-      Expense.find({}).populate('payments.account contact'),
+      Sale.find(queryFilter).populate('payments.account contact'),
+      Purchase.find(queryFilter).populate('payments.account contact'),
+      Expense.find(businessLocation ? { businessLocation } : {}).populate('payments.account contact'),
     ]);
 
     const pushFormatted = ({
@@ -46,7 +52,6 @@ exports.getPaymentsAccountReport = async (req, res) => {
       });
     };
 
-    // Sales
     sales.forEach((sale) => {
       const contactName = sale.contact?.name || '';
       const contactType = sale.contact?.type || 'customer';
@@ -65,7 +70,6 @@ exports.getPaymentsAccountReport = async (req, res) => {
       );
     });
 
-    // Purchases
     purchases.forEach((purchase) => {
       const contactName = purchase.contact?.name || '';
       const contactType = purchase.contact?.type || 'supplier';
@@ -84,7 +88,6 @@ exports.getPaymentsAccountReport = async (req, res) => {
       );
     });
 
-    // Expenses
     expenses.forEach((expense) => {
       const contactName = expense.contact?.name || '';
       const contactType = expense.contact?.type || 'supplier';

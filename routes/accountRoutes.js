@@ -22,7 +22,7 @@ router.get('/active', protect, authorizeRoles('admin'), getAllActiveAccount);
 router.post('/transfer', protect, authorizeRoles('admin'), fundTransfer);
 router.post('/deposit', protect, authorizeRoles('admin'), depositToAccount);
 router.get('/balance-sheet', protect, authorizeRoles('admin'), getBalanceSheet);
-//GET /api/cash-flow?account_id=123&location_id=456&account_type=credit&start_date=2025-05-01&end_date=2025-05-31
+//GET /api/accounts/cash-flow?account_id=123&location_id=456&account_type=credit&start_date=2025-05-01&end_date=2025-05-31
 router.get('/cash-flow', protect, authorizeRoles('admin'), getCashFlow);
 router.get('/payments-report', protect, authorizeRoles('admin'), getPaymentsAccountReport);
 router.put('/toggle/:id', protect, authorizeRoles('admin'), toggleAccountStatus);
