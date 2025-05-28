@@ -37,10 +37,13 @@ exports.updatePurchase = async (req, res) => {
         payments = req.body.payments;
       }
 
+      let paymentRefNo = await generateAutoId('PURPYMNT');
+
       // Format date strings into Date objects
       payments = payments.map(p => ({
         ...p,
         paidOn: new Date(p.paidOn),
+        paymentRefNo: paymentRefNo
       }));
 
       req.body.payments = payments;

@@ -16,6 +16,7 @@ const paymentSchema = new mongoose.Schema({
   paidOn: { type: Date, required: true },
   method: { type: mongoose.Schema.Types.ObjectId, ref: 'AccountType' },
   paymentDue: { type: Number },
+  paymentRefNo: { type: String, required: true },
   account: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
   bankAccountNo: { type: String },
   note: String

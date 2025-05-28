@@ -19,11 +19,14 @@ exports.addExpense = async (req, res) => {
       } else if (Array.isArray(req.body.payments)) {
         payments = req.body.payments;
       }
+
+      let paymentRefNo = await generateAutoId('EXPPYMNT');
     
       // Format date fields
       payments = payments.map(p => ({
         ...p,
         paidOn: new Date(p.paidOn),
+        paymentRefNo: paymentRefNo
       }));
     }
     const expense = new Expense({ ...req.body, referenceNo, documents: filePaths, payments });

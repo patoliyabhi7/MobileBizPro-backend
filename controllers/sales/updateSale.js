@@ -37,9 +37,12 @@ exports.updateSale = async (req, res) => {
         payments = req.body.payments;
       }
 
+      let paymentRefNo = await generateAutoId('SALEPYMNT');
+
       payments = payments.map(p => ({
         ...p,
         paidOn: new Date(p.paidOn),
+        paymentRefNo: paymentRefNo
       }));
 
       req.body.payments = payments;

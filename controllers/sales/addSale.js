@@ -19,10 +19,13 @@ exports.addSale = async (req, res) => {
         payments = req.body.payments;
       }
     
+      let paymentRefNo = await generateAutoId('SALEPYMNT');
+
       // Format date fields
       payments = payments.map(p => ({
         ...p,
         paidOn: new Date(p.paidOn),
+        paymentRefNo: paymentRefNo,
       }));
     }
     const filePaths = req.files?.map(file => `uploads/${file.filename}`) || [];
