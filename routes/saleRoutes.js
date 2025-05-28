@@ -11,6 +11,7 @@ const { updateSale } = require('../controllers/sales/updateSale');
 const { deleteSale } = require('../controllers/sales/deleteSale');
 const { listSaleReturns } = require('../controllers/sales/listSaleReturns');
 const { addSaleReturn } = require('../controllers/sales/addSaleReturn');
+const { getRecentSalePrice } = require('../controllers/sales/getRecentSalePrice');
 const { getAllSalesByBusinessLocation } = require('../controllers/sales/getAllSalesByBusinessLocation');
 
 router.get('/', protect, listAllSales);
@@ -18,6 +19,7 @@ router.post('/', protect, authorizeRoles('admin'), uploadMultiple('documents', 5
 router.get('/returns', protect, listSaleReturns);
 router.post('/sale-return/:saleId', protect, authorizeRoles('admin'), addSaleReturn);
 router.get('/location/:locationId', protect, getAllSalesByBusinessLocation);
+router.get('/recent-price/:productId', protect, getRecentSalePrice);
 router.get('/:id', protect, getSaleById);
 router.put('/:id', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), updateSale);
 router.delete('/:id', protect, authorizeRoles('admin'), deleteSale);
