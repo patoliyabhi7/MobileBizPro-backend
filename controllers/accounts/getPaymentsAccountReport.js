@@ -4,23 +4,34 @@ const Expense = require('../../models/expenseModel');
 
 const formatCurrency = (amount) => `₹ ${Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 const formatDate = (date) => new Date(date).toLocaleString('en-IN', { hour12: true });
-const getAccountLabel = (account) =>
-  account ? `${account.name} - ${account.account_number}` : '-';
+const getAccountLabel = (account) => account ? `${account.name} - ${account.account_number}` : '-';
 
 exports.getPaymentsAccountReport = async (req, res) => {
   try {
-    const { businessLocation } = req.query; // or req.body if you prefer POST
+    const { businessLocation, date_from, date_to } = req.query;
 
     const result = [];
 
-    const queryFilter = { status: { $ne: 'return' } };
-    if (businessLocation) {
-      queryFilter.businessLocation = businessLocation;
-    }
+    // Convert string to actual Date objects
+    const from = date_from ? new Date(date_from) : null;
+    const to = date_to ? new Date(date_to) : null;
+
+    // Filters for base models
+    const transactionFilter = { status: { $ne: 'return' } };
+    if (businessLocation) transactionFilter.businessLocation = businessLocation;
+
+    // Filters for payments array
+    const paymentDateFilter = (paymentDate) => {
+      if (!paymentDate) return false;
+      const paidDate = new Date(paymentDate);
+      if (from && paidDate < from) return false;
+      if (to && paidDate > to) return false;
+      return true;
+    };
 
     const [sales, purchases, expenses] = await Promise.all([
-      Sale.find(queryFilter).populate('payments.account contact'),
-      Purchase.find(queryFilter).populate('payments.account contact'),
+      Sale.find(transactionFilter).populate('payments.account contact'),
+      Purchase.find(transactionFilter).populate('payments.account contact'),
       Expense.find(businessLocation ? { businessLocation } : {}).populate('payments.account contact'),
     ]);
 
@@ -33,11 +44,11 @@ exports.getPaymentsAccountReport = async (req, res) => {
       details,
       account
     }) => {
-      if (!payment?.account) return;
+      if (!payment?.account || !paymentDateFilter(payment.paidOn)) return;
 
       result.push({
         payment_id: payment._id,
-        payment_ref_no: payment.payment_ref_no || '',
+        payment_ref_no: payment.paymentRefNo || '',
         paid_on: formatDate(payment.paidOn),
         type,
         invoice_no: invoice_no || '',
@@ -53,15 +64,15 @@ exports.getPaymentsAccountReport = async (req, res) => {
     };
 
     sales.forEach((sale) => {
-      const contactName = sale.contact?.name || '';
-      const contactType = sale.contact?.type || 'customer';
+      const contactName = sale.contact?.firstName + ' ' + sale.contact?.lastName || '';
+      const contactType = sale.contact?.contactType || 'customer';
       const details = `<b>Customer:</b> ${contactName}`;
 
       sale.payments?.forEach((payment) =>
         pushFormatted({
           payment,
           type: 'Sell',
-          invoice_no: sale.invoice_no,
+          invoice_no: sale.invoiceNo,
           contactName,
           contactType,
           details,
@@ -71,8 +82,8 @@ exports.getPaymentsAccountReport = async (req, res) => {
     });
 
     purchases.forEach((purchase) => {
-      const contactName = purchase.contact?.name || '';
-      const contactType = purchase.contact?.type || 'supplier';
+      const contactName = purchase.contact?.firstName + ' ' + purchase.contact?.lastName || '';
+      const contactType = purchase.contact?.contactType || 'supplier';
       const details = `<b>Supplier:</b> ${contactName}`;
 
       purchase.payments?.forEach((payment) =>
@@ -89,8 +100,8 @@ exports.getPaymentsAccountReport = async (req, res) => {
     });
 
     expenses.forEach((expense) => {
-      const contactName = expense.contact?.name || '';
-      const contactType = expense.contact?.type || 'supplier';
+      const contactName = expense.contact?.firstName + ' ' + expense.contact?.lastName || '';
+      const contactType = expense.contact?.contactType || 'supplier';
       const details = `<b>Supplier:</b> ${contactName}`;
 
       expense.payments?.forEach((payment) =>
