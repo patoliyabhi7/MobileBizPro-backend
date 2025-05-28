@@ -12,7 +12,7 @@ exports.deleteCategory = async (req, res) => {
       return res.status(404).json({ error: 'Category not found' });
     }
 
-    res.json({ message: 'Category soft-deleted successfully', category });
+    res.json({ message: 'Category soft-deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

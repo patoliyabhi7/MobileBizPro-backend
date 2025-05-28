@@ -5,7 +5,7 @@ const path = require('path');
 exports.editProfile = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { name, username, email, role } = req.body;
+    const { name, username, email} = req.body;
 
     const user = await User.findById(userId);
     if (!user) {
@@ -32,7 +32,6 @@ exports.editProfile = async (req, res) => {
     }
 
     if (name) user.name = name;
-    if (role) user.role = role;
 
     if (req.file) {
       if (user.profilePhoto && fs.existsSync(user.profilePhoto)) {
@@ -50,7 +49,6 @@ exports.editProfile = async (req, res) => {
         name: user.name,
         username: user.username,
         email: user.email,
-        role: user.role,
         profilePhoto: user.profilePhoto || null,
       },
     });

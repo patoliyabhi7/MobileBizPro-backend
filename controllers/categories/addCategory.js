@@ -15,7 +15,9 @@ exports.addCategory = async (req, res) => {
     });
 
     await category.save();
-    res.status(201).json({ message: 'Category added successfully', category });
+
+    const categoryWithParent = await Category.findById(category._id).populate('parentCategory', 'name');
+    res.status(201).json({ message: 'Category added successfully', categoryWithParent });
 
   } catch (err) {
     res.status(500).json({ error: err.message });

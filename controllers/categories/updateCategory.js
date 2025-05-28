@@ -13,7 +13,9 @@ exports.updateCategory = async (req, res) => {
     if (parentCategory !== undefined) category.parentCategory = parentCategory;
 
     await category.save();
-    res.status(200).json({ message: 'Category updated successfully', category });
+
+    const updatedCategory = await Category.findById(req.params.id).populate('parentCategory', 'name');
+    res.status(200).json({ message: 'Category updated successfully', updatedCategory });
 
   } catch (err) {
     res.status(500).json({ error: err.message });
