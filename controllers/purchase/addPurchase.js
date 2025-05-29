@@ -1,5 +1,6 @@
 const Purchase = require('../../models/purchaseModel');
 const generateAutoId = require('../../utils/generateAutoId');
+const updateStock = require('../../utils/updateStock');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 
 exports.addPurchase = async (req, res) => {
@@ -41,6 +42,10 @@ exports.addPurchase = async (req, res) => {
     if (purchase.payments && purchase.payments.length > 0) {
       await updateAccountBalances(purchase.payments, 'purchase');
     }
+
+    //increase quantity of products
+    await updateStock(req.body.products, 'increase');
+
     const populatedPurchase = await Purchase.findById(purchase._id).populate('supplier', 'businessName firstName lastName')
     .populate('businessLocation', 'name')
     .populate('products.product', 'productName')

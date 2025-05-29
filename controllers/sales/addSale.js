@@ -1,4 +1,5 @@
 const Sale = require('../../models/saleModel');
+const updateStock = require('../../utils/updateStock');
 const generateAutoId = require('../../utils/generateAutoId');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 
@@ -35,6 +36,9 @@ exports.addSale = async (req, res) => {
     if (sale.payments && sale.payments.length > 0) {
       await updateAccountBalances(sale.payments, 'sale');
     }
+    // decrease quantity of product stock
+    await updateStock(req.body.products, 'decrease');
+
     const populatedSale = await Sale.findById(sale._id).populate('payments.account').populate('addedBy', 'name _id').populate('customer')
     .populate('businessLocation').populate('products.product').populate('payments.method');
     res.status(201).json({ message: 'Sale added successfully', populatedSale });

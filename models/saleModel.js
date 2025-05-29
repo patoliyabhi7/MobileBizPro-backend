@@ -8,7 +8,8 @@ const saleProductSchema = new mongoose.Schema({
   storage: String,
   quantity: { type: Number, required: true },
   unitPrice: { type: Number, required: true },
-  lineTotal: { type: Number, required: true }
+  lineTotal: { type: Number, required: true },
+  note: String
 });
 
 const paymentSchema = new mongoose.Schema({
@@ -42,7 +43,6 @@ const saleSchema = new mongoose.Schema({
   shippingStatus: { type: String, enum: ['shipped', 'pending'], default: 'pending' },
   totalItems: { type: Number },
   typesOfService: String,
-  businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });

@@ -1,4 +1,5 @@
 const Sale = require('../../models/saleModel');
+const Product = require('../../models/productModel');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 
 exports.addSaleReturn = async (req, res) => {
@@ -33,6 +34,11 @@ exports.addSaleReturn = async (req, res) => {
     }));
 
     await updateAccountBalances(returnPayments, 'sale_return');
+
+    //increase quantity of products in stock
+    if (sale.products && sale.products.length > 0) {
+      await updateStock(sale.products, 'increase');
+    }
 
     res.status(200).json({
       message: 'Sale return processed successfully',

@@ -34,6 +34,11 @@ exports.addPurchaseReturn = async (req, res) => {
 
     await updateAccountBalances(returnPayments, 'purchase_return');
 
+    //decrease quantity of products
+    if (purchase.products && purchase.products.length > 0) {
+      await updateStock(purchase.products, 'decrease');
+    }
+
     res.status(200).json({
       message: 'Purchase return processed successfully',
       returnPayments,
