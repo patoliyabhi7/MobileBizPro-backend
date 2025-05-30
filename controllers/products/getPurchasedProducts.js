@@ -1,63 +1,49 @@
 const Product = require('../../models/productModel');
-const Purchase = require('../../models/purchaseModel');
-const Sale = require('../../models/saleModel');
+const Stock = require('../../models/stockModel');
 
 exports.getPurchasedProducts = async (req, res) => {
   try {
-    const purchases = await Purchase.find({
-      isDeleted: false,
-      status: { $ne: 'return' }
-    }).lean();
+    const { businessLocation } = req.params;
 
-    const sales = await Sale.find({
-      isDeleted: false,
-      status: { $ne: 'return' }
-    }).lean();
-
-    const soldMap = {};
-
-    // calculate sold qty for each product
-    for (const sale of sales) {
-      for (const item of sale.products || []) {
-        const id = item.product?.toString();
-        if (!soldMap[id]) soldMap[id] = 0;
-        soldMap[id] += item.quantity;
-      }
+    if (!businessLocation) {
+      return res.status(400).json({ error: 'businessLocation is required' });
     }
+
+    // Get available (not sold) stock at this location
+    const stocks = await Stock.find({
+      businessLocation,
+      status: 1 // Only in-stock items
+    }).populate({
+      path: 'product',
+      populate: ['brand', 'category']
+    }).lean();    
 
     const result = [];
 
-    for (const purchase of purchases) {
-      for (const line of purchase.products || []) {
-        const product = await Product.findById(line.product).lean();
-        if (!product) continue;
+    for (const stock of stocks) {
+      const product = stock.product;
+      if (!product || product.isDeleted) continue;
 
-        const totalQty = line.quantity || 0;
-        const soldQty = soldMap[product._id.toString()] || 0;
-        const qtyAvailable = totalQty - soldQty;
-
-        if (qtyAvailable <= 0) continue;
-
-        result.push({
-          purchase_line_id: line._id,
-          product_id: product._id,
-          name: product.productName,
-          sub_sku: product.sku,
-          type: product.type || 'single',
-          unit: product.unit,
-          category_id: product.category,
-          enable_stock: product.quantity > 0 ? 1 : 0,
-          serial_no: line.serialNo || null,
-          imei_no: line.imeiNo || null,
-          color: line.color || null,
-          storage: line.storage || null,
-          variation: line.variation || 'DUMMY',
-          variation_id: line.variation_id || 0,
-          selling_price: product.sellingPrice?.toString() || '0',
-          qty_available: qtyAvailable,
-          availabel_to_sell: qtyAvailable.toFixed(4)
-        });
-      }
+      result.push({
+        purchase_line_id: stock.purchaseRef || null,
+        product_id: product._id,
+        name: product.productName,
+        sub_sku: product.sku,
+        type: product.type || 'single',
+        unit: product.unit,
+        category_id: product.category?._id || null,
+        enable_stock: 1,
+        serial_no: stock.serialNo || null,
+        imei_no: stock.imeiNo || null,
+        color: stock.color || null,
+        storage: stock.storage || null,
+        variation: stock.variation || 'DUMMY',
+        variation_id: stock.variation_id || 0,
+        selling_price: stock.purchaseRef?.purchasePrice?.toString() || '0',
+        qty_available: 1,
+        availabel_to_sell: '1.0000',
+        brand_name: product.brand?.name || null,
+      });
     }
 
     res.status(200).json(result);

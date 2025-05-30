@@ -1,30 +1,33 @@
 const Sale = require('../../models/saleModel');
+const generateAutoId = require('../../utils/generateAutoId');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 const { revertAccountBalances } = require('../../utils/revertAccountBalances');
-const generateAutoId = require('../../utils/generateAutoId');
+const revertStock = require('../../utils/revertStock');
+const consumeStock = require('../../utils/consumeStock');
 
 exports.updateSale = async (req, res) => {
   try {
-    // Step 1: Fetch the existing sale before update
-    const oldSale = await Sale.findById(req.params.id);
+    const oldSale = await Sale.findById(req.params.id).lean();
     if (!oldSale) {
       return res.status(404).json({ message: 'Sale not found' });
     }
 
-    // Step 2: Handle document uploads
-    if (req.files && req.files.length > 0) {
-      // Delete old files
-      if (oldSale.documents && oldSale.documents.length > 0) {
+    const businessLocation = req.body.businessLocation || oldSale.businessLocation?.toString();
+    if (!businessLocation) {
+      return res.status(400).json({ error: 'businessLocation is required' });
+    }
+
+    // 🗑 Delete old documents if new ones are uploaded
+    if (req.files?.length > 0) {
+      if (oldSale.documents?.length > 0) {
         oldSale.documents.forEach(doc => {
           if (fs.existsSync(doc)) fs.unlinkSync(doc);
         });
       }
-
-      // Add new files
-      req.body.documents = req.files.map(file => `uploads/${file.filename}`);
+      req.body.documents = req.files.map(file => path.join('uploads', file.filename));
     }
 
-    // Step 3: Parse and format payments
+    // 💰 Handle payment update
     if ('payments' in req.body) {
       let payments = [];
 
@@ -38,39 +41,42 @@ exports.updateSale = async (req, res) => {
         payments = req.body.payments;
       }
 
-      let paymentRefNo = await generateAutoId('SALEPYMNT');
-
-      payments = payments.map(p => ({
+      const paymentRefNo = await generateAutoId('SALEPYMNT');
+      req.body.payments = payments.map(p => ({
         ...p,
         paidOn: new Date(p.paidOn),
-        paymentRefNo: paymentRefNo
+        paymentRefNo
       }));
-
-      req.body.payments = payments;
     }
 
     req.body.addedBy = req.user.userId;
 
-    // Step 4: Revert old payment effects from accounts
+    // 🔁 Revert old payments and stock
     await revertAccountBalances(oldSale.payments, 'sale');
+    await revertStock(oldSale.products, businessLocation);
 
-    // Step 5: Update the sale
+    // 🔄 Update sale
     const updatedSale = await Sale.findByIdAndUpdate(
       req.params.id,
       req.body,
       { new: true }
-    ).populate('customer')
-    .populate('businessLocation')
-    .populate('addedBy', 'name _id')
-    .populate('products.product')
-  .populate('payments.account').populate('payments.method');
+    )
+      .populate('customer')
+      .populate('businessLocation')
+      .populate('addedBy', 'name _id')
+      .populate('products.product')
+      .populate('payments.account')
+      .populate('payments.method');
 
     if (!updatedSale) {
       return res.status(404).json({ message: 'Sale not found after update' });
     }
 
-    // Step 6: Apply new payments to account balances
-    if (req.body.payments && req.body.payments.length > 0) {
+    // 📦 Consume stock again
+    await consumeStock(req.body.products);
+
+    // 💰 Apply new payments
+    if (req.body.payments?.length > 0) {
       await updateAccountBalances(req.body.payments, 'sale');
     }
 

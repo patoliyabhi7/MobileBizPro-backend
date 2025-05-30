@@ -13,7 +13,7 @@ const { getPurchasedProducts } = require('../controllers/products/getPurchasedPr
 
 router.post('/', protect, authorizeRoles('admin'), addProduct);
 router.get('/', protect, getAllProducts);
-router.get('/purchased', getPurchasedProducts);
+router.get('/purchased/:businessLocation', protect, getPurchasedProducts);
 router.get('/location/:locationId', protect, getAllProductsByBusinessLocation);
 router.get('/:id', protect, getProductById);
 router.put('/:id', protect, authorizeRoles('admin'), updateProduct);

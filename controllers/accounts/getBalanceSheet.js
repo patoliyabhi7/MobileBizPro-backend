@@ -10,14 +10,15 @@ exports.getBalanceSheet = async (req, res) => {
     const filterByLocationAndDate = (query = {}) => ({
       ...query,
       ...(location_id && { businessLocation: location_id }),
-      ...(date && { transaction_date: { $lte: new Date(date) } }),
+      ...(date && { createdAt: { $lte: new Date(date) } }), // Changed to createdAt for all since paymentDue isn't date-based
+      isDeleted: false,
     });
 
     const [sales, purchases, accounts, expenses] = await Promise.all([
       Sale.find(filterByLocationAndDate()),
       Purchase.find(filterByLocationAndDate()),
       Account.find(),
-      Expense.find(filterByLocationAndDate())
+      Expense.find(filterByLocationAndDate()),
     ]);
 
     let customerDue = 0;
@@ -26,39 +27,35 @@ exports.getBalanceSheet = async (req, res) => {
     let accountBalances = [];
     let totalExpense = 0;
 
-    // Customer Dues Calculation
+    // 💰 Customer Dues (from sales)
     sales.forEach(sale => {
-      sale.payments?.forEach(pay => {
-        customerDue += parseFloat(pay.paymentDue || 0);
-      });
+      customerDue += parseFloat(sale.paymentDue || 0);
     });
 
-    // Supplier Dues Calculation
+    // 💸 Supplier Dues (from purchases)
     purchases.forEach(purchase => {
-      purchase.payments?.forEach(pay => {
-        supplierDue += parseFloat(pay.paymentDue || 0);
-      });
+      supplierDue += parseFloat(purchase.paymentDue || 0);
     });
 
+    // 🧾 Total Expense
+    expenses.forEach(exp => {
+      totalExpense += parseFloat(exp.totalAmount || 0);
+    });
 
-    // Account Balances
+    // 🏦 Account Balances
     accounts.forEach(acc => {
-      if (acc.is_active === false) return; // Skip inactive accounts
+      if (!acc.is_active) return;
 
       const balance = parseFloat(acc.balance || 0);
       totalAccountBalance += balance;
 
       accountBalances.push({
         name: acc.name,
-        balance: balance.toFixed(2)
+        balance: balance.toFixed(2),
       });
     });
 
-    // Expenses
-    expenses.forEach(exp => {
-      totalExpense += parseFloat(exp.totalAmount || 0);
-    });
-
+    // 📊 Final Response
     res.status(200).json({
       customer_due: customerDue.toFixed(2),
       supplier_due: supplierDue.toFixed(2),
@@ -74,4 +71,3 @@ exports.getBalanceSheet = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-

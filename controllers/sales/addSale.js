@@ -1,13 +1,21 @@
 const Sale = require('../../models/saleModel');
-const updateStock = require('../../utils/updateStock');
 const generateAutoId = require('../../utils/generateAutoId');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
+const consumeStock = require('../../utils/consumeStock'); 
 
 exports.addSale = async (req, res) => {
   try {
     const invoiceNo = req.body.invoiceNo || await generateAutoId('INV');
     req.body.addedBy = req.user.userId;
-    // If payments are sent as JSON string (common in multipart form-data), parse them
+
+    const businessLocation = req.body.businessLocation;
+    if (!businessLocation) {
+      return res.status(400).json({ error: 'businessLocation is required' });
+    }
+
+    // ⛔️ Remove old quantity validation logic, handled by consumeStock now.
+
+    // 🧾 Parse payments
     let payments = [];
     if (req.body.payments) {
       if (typeof req.body.payments === 'string') {
@@ -19,30 +27,47 @@ exports.addSale = async (req, res) => {
       } else if (Array.isArray(req.body.payments)) {
         payments = req.body.payments;
       }
-    
-      let paymentRefNo = await generateAutoId('SALEPYMNT');
 
-      // Format date fields
+      const paymentRefNo = await generateAutoId('SALEPYMNT');
       payments = payments.map(p => ({
         ...p,
         paidOn: new Date(p.paidOn),
-        paymentRefNo: paymentRefNo,
+        paymentRefNo,
       }));
     }
-    const filePaths = req.files?.map(file => `uploads/${file.filename}`) || [];
-    const saleData = { ...req.body, invoiceNo, documents: filePaths, payments };
+
+    // 📎 Handle file uploads
+    const filePaths = req.files?.map(file => path.join('uploads', file.filename)) || [];
+
+    const saleData = {
+      ...req.body,
+      invoiceNo,
+      documents: filePaths,
+      payments
+    };
+
     const sale = new Sale(saleData);
     await sale.save();
-    if (sale.payments && sale.payments.length > 0) {
-      await updateAccountBalances(sale.payments, 'sale');
-    }
-    // decrease quantity of product stock
-    await updateStock(req.body.products, 'decrease');
 
-    const populatedSale = await Sale.findById(sale._id).populate('payments.account').populate('addedBy', 'name _id').populate('customer')
-    .populate('businessLocation').populate('products.product').populate('payments.method');
+    // 💰 Update account balances
+    if (payments.length > 0) {
+      await updateAccountBalances(payments, 'sale');
+    }
+
+    // 📦 Consume stock (mark IMEI items as used)
+    await consumeStock(req.body.products);
+
+    const populatedSale = await Sale.findById(sale._id)
+      .populate('payments.account')
+      .populate('addedBy', 'name _id')
+      .populate('customer')
+      .populate('businessLocation')
+      .populate('products.product')
+      .populate('payments.method');
+
     res.status(201).json({ message: 'Sale added successfully', populatedSale });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 };

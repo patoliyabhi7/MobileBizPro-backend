@@ -1,6 +1,6 @@
 const Purchase = require('../../models/purchaseModel');
 const generateAutoId = require('../../utils/generateAutoId');
-const updateStock = require('../../utils/updateStock');
+const createStock = require('../../utils/createStock');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 
 exports.addPurchase = async (req, res) => {
@@ -8,7 +8,15 @@ exports.addPurchase = async (req, res) => {
     const referenceNo = req.body.referenceNo || await generateAutoId('PUR');
     req.body.addedBy = req.user.userId;
     const filePaths = req.files?.map(file => `uploads/${file.filename}`) || [];
-    // If payments are sent as JSON string (common in multipart form-data), parse them
+
+    for (const productLine of req.body.products || []) {
+      if (productLine.quantity !== 1) {
+        return res.status(400).json({
+          error: `Quantity for product ${productLine.product} must be exactly 1`
+        });
+      }
+    }
+
     let payments = [];
     if (req.body.payments) {
       if (typeof req.body.payments === 'string') {
@@ -21,13 +29,11 @@ exports.addPurchase = async (req, res) => {
         payments = req.body.payments;
       }
 
-      let paymentRefNo = await generateAutoId('PURPYMNT');
-    
-      // Format date fields
+      const paymentRefNo = await generateAutoId('PURPYMNT');
       payments = payments.map(p => ({
         ...p,
         paidOn: new Date(p.paidOn),
-        paymentRefNo: paymentRefNo
+        paymentRefNo
       }));
     }
 
@@ -38,20 +44,22 @@ exports.addPurchase = async (req, res) => {
       payments
     });
 
-    await purchase.save();
-    if (purchase.payments && purchase.payments.length > 0) {
-      await updateAccountBalances(purchase.payments, 'purchase');
+    const savedPurchase = await purchase.save();
+
+    if (payments.length > 0) {
+      await updateAccountBalances(payments, 'purchase');
     }
 
-    //increase quantity of products
-    await updateStock(req.body.products, 'increase');
+    await createStock(savedPurchase.products, savedPurchase._id, savedPurchase.businessLocation); 
 
-    const populatedPurchase = await Purchase.findById(purchase._id).populate('supplier', 'businessName firstName lastName')
-    .populate('businessLocation', 'name')
-    .populate('products.product', 'productName')
-    .populate('addedBy', 'name _id')
-    .populate('payments.account')
-    .populate('payments.method');
+    const populatedPurchase = await Purchase.findById(savedPurchase._id)
+      .populate('supplier', 'businessName firstName lastName')
+      .populate('businessLocation', 'name')
+      .populate('products.product', 'productName')
+      .populate('addedBy', 'name _id')
+      .populate('payments.account')
+      .populate('payments.method');
+
     res.status(201).json({ message: 'Purchase added successfully', populatedPurchase });
   } catch (err) {
     res.status(500).json({ error: err.message });

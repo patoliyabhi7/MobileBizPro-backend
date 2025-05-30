@@ -1,33 +1,36 @@
 const Purchase = require('../../models/purchaseModel');
+const generateAutoId = require('../../utils/generateAutoId');
+const revertStock = require('../../utils/revertStock');
+const createStock = require('../../utils/createStock');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 const { revertAccountBalances } = require('../../utils/revertAccountBalances');
-const generateAutoId = require('../../utils/generateAutoId');
 
 exports.updatePurchase = async (req, res) => {
   try {
-    // Step 1: Fetch the old purchase for reverting old balances
     const oldPurchase = await Purchase.findById(req.params.id);
     if (!oldPurchase || oldPurchase.isDeleted) {
       return res.status(404).json({ message: 'Purchase not found or deleted' });
     }
 
-    // Step 2: Handle document upload and replace old ones
+    if (req.body.products) {
+      let products = typeof req.body.products === 'string' ? JSON.parse(req.body.products) : req.body.products;
+      if (!products.every(p => p.quantity === 1)) {
+        return res.status(400).json({ error: 'Each product must have quantity = 1' });
+      }
+      req.body.products = products;
+    }
+
     if (req.files && req.files.length > 0) {
-      // Delete existing files
-      if (oldPurchase.documents && oldPurchase.documents.length > 0) {
+      if (oldPurchase.documents?.length > 0) {
         oldPurchase.documents.forEach(doc => {
           if (fs.existsSync(doc)) fs.unlinkSync(doc);
         });
       }
-
-      // Assign new file paths
       req.body.documents = req.files.map(file => `uploads/${file.filename}`);
     }
 
-    // Step 3: Parse and format payments
     if ('payments' in req.body) {
       let payments = [];
-
       if (typeof req.body.payments === 'string') {
         try {
           payments = JSON.parse(req.body.payments);
@@ -38,44 +41,44 @@ exports.updatePurchase = async (req, res) => {
         payments = req.body.payments;
       }
 
-      let paymentRefNo = await generateAutoId('PURPYMNT');
-
-      // Format date strings into Date objects
-      payments = payments.map(p => ({
+      const paymentRefNo = await generateAutoId('PURPYMNT');
+      req.body.payments = payments.map(p => ({
         ...p,
         paidOn: new Date(p.paidOn),
-        paymentRefNo: paymentRefNo
+        paymentRefNo
       }));
-
-      req.body.payments = payments;
     }
 
     req.body.addedBy = req.user.userId;
 
-    // Step 4: Revert old account balances
+    // Revert old stock and account balances
+    await revertStock(oldPurchase.products);
     await revertAccountBalances(oldPurchase.payments, 'purchase');
 
-    // Step 5: Update purchase
-    const updatedPurchase = await Purchase.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true }
-    ).populate('addedBy', 'name _id').populate('payments.account').populate('supplier', 'businessName firstName lastName')
-    .populate('businessLocation', 'name')
-    .populate('products.product', 'productName').populate('payments.method');
+    // Update purchase record
+    const updatedPurchase = await Purchase.findByIdAndUpdate(req.params.id, req.body, { new: true })
+      .populate('addedBy', 'name _id')
+      .populate('payments.account')
+      .populate('supplier', 'businessName firstName lastName')
+      .populate('businessLocation', 'name')
+      .populate('products.product', 'productName')
+      .populate('payments.method');
 
     if (!updatedPurchase) {
       return res.status(404).json({ message: 'Purchase not found after update' });
     }
 
-    // Step 6: Apply new payment balances
-    if (req.body.payments && req.body.payments.length > 0) {
+    // Add new stock and update account balances
+    if (req.body.products?.length > 0) {
+      await createStock(req.body.products, updatedPurchase._id, updatedPurchase.businessLocation);
+    }
+
+    if (req.body.payments?.length > 0) {
       await updateAccountBalances(req.body.payments, 'purchase');
     }
 
     res.status(200).json({ message: 'Purchase updated successfully', updatedPurchase });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: err.message });
   }
 };

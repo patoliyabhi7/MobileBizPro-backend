@@ -1,21 +1,26 @@
 const Sale = require('../../models/saleModel');
-const Product = require('../../models/productModel');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
+const revertStock = require('../../utils/revertStock');
 
 exports.addSaleReturn = async (req, res) => {
   try {
     const { saleId } = req.params;
+    const { businessLocation } = req.body;
 
-    if (!saleId) {
-      return res.status(400).json({ error: 'saleId is required' });
+    if (!saleId || !businessLocation) {
+      return res.status(400).json({ error: 'saleId and businessLocation are required' });
     }
 
-    
     const sale = await Sale.findById(saleId).lean();
     if (!sale || sale.isDeleted) {
       return res.status(404).json({ error: 'Sale not found' });
     }
-    
+
+    if (sale.businessLocation?.toString() !== businessLocation) {
+      return res.status(403).json({ error: 'Sale does not belong to this business location' });
+    }
+
+    // 🔁 Mark as returned
     await Sale.findByIdAndUpdate(saleId, { status: 'return' });
 
     const payments = sale.payments || [];
@@ -33,12 +38,11 @@ exports.addSaleReturn = async (req, res) => {
       note: 'Sale Return'
     }));
 
+    // 💰 Reverse payments
     await updateAccountBalances(returnPayments, 'sale_return');
 
-    //increase quantity of products in stock
-    if (sale.products && sale.products.length > 0) {
-      await updateStock(sale.products, 'increase');
-    }
+    // 📦 Revert stock
+    await revertStock(sale.products, businessLocation);
 
     res.status(200).json({
       message: 'Sale return processed successfully',
