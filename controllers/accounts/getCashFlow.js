@@ -7,9 +7,11 @@ const FundTransfer = require('../../models/fundTransferModel');
 exports.getCashFlow = async (req, res) => {
   try {
     let { account_id, location_id, account_type, start_date, end_date } = req.query;
-    if (account_id === 'All') account_id = undefined;
-    if (location_id === 'All locations') location_id = undefined;
-    if (account_type === 'All') account_type = undefined;
+
+    // Normalize filters: if "All" or "All locations", set to undefined to mean no filter
+    if (!account_id || account_id === 'All') account_id = undefined;
+    if (!location_id || location_id === 'All locations') location_id = undefined;
+    if (!account_type || account_type === 'All') account_type = undefined;
 
     let runningBalance = 0;
     let totalCredit = 0;
@@ -22,7 +24,7 @@ exports.getCashFlow = async (req, res) => {
       return d >= new Date(start_date) && d <= new Date(end_date);
     };
 
-    const pushEntry = ({ date, description, method, details, debit, credit }) => {
+    const pushEntry = ({ date, description, method, details, debit, credit, account }) => {
       if (!isInRange(date)) return;
 
       if (credit) {
@@ -39,6 +41,7 @@ exports.getCashFlow = async (req, res) => {
       if (!account_type || transaction_type === account_type) {
         entries.push({
           date,
+          account,
           description,
           paymentMethod: method || '',
           paymentDetails: details || '',
@@ -50,117 +53,146 @@ exports.getCashFlow = async (req, res) => {
       }
     };
 
+    // Build filters for each model, apply only if value is defined
+
+    const depositFilter = {};
+    if (account_id) depositFilter.to_account = account_id;
+
+    const transfersOutFilter = {};
+    if (account_id) transfersOutFilter.from_account = account_id;
+
+    const transfersInFilter = {};
+    if (account_id) transfersInFilter.to_account = account_id;
+
+    const saleFilter = { status: { $ne: 'return' } };
+    if (location_id) saleFilter.businessLocation = location_id;
+
+    const purchaseFilter = { status: { $ne: 'return' } };
+    if (location_id) purchaseFilter.businessLocation = location_id;
+
+    const expenseFilter = {};
+    if (location_id) expenseFilter.businessLocation = location_id;
+
     const [deposits, transfersOut, transfersIn, sales, purchases, expenses] = await Promise.all([
-      Deposit.find({
-        ...(account_id && { to_account: account_id }),
-        ...(location_id && { businessLocation: location_id })
-      }),
-      FundTransfer.find({
-        ...(account_id && { from_account: account_id }),
-        ...(location_id && { businessLocation: location_id })
-      }),
-      FundTransfer.find({
-        ...(account_id && { to_account: account_id }),
-        ...(location_id && { businessLocation: location_id })
-      }),
-      Sale.find({
-        ...(location_id && { businessLocation: location_id }),
-        ...({ status: { $ne: 'return' } })
-      }),
-      Purchase.find({
-        ...(location_id && { businessLocation: location_id }),
-        ...({ status: { $ne: 'return' } })
-      }),
-      Expense.find({
-        ...(location_id && { businessLocation: location_id })
-      }),
+      Deposit.find(depositFilter).populate('to_account'),
+      FundTransfer.find(transfersOutFilter).populate('from_account to_account'),
+      FundTransfer.find(transfersInFilter).populate('from_account to_account'),
+      Sale.find(saleFilter).populate('addedBy customer payments.account'),
+      Purchase.find(purchaseFilter).populate('addedBy supplier payments.account'),
+      Expense.find(expenseFilter).populate('payments.account category'),
     ]);
 
-    // Deposits (IN)
+    // Process deposits (credits)
     deposits.forEach(dep => {
+      const accountName = dep.to_account?.name || dep.to_account?.accountNumber || 'N/A';
       pushEntry({
         date: dep.createdAt,
         description: `Deposit - Ref: ${dep.ref_no || '-'}`,
         method: dep.payment_method || '',
         details: dep.payment_details || '',
         credit: parseFloat(dep.amount),
-        debit: 0
+        debit: 0,
+        account: accountName
       });
     });
 
-    // Fund Transfers
+    // Fund transfers received (credits)
     transfersIn.forEach(tr => {
+      const fromAcc = tr.from_account?.name || tr.from_account?.accountNumber || 'N/A';
       pushEntry({
         date: tr.createdAt,
-        description: `Fund Transfer Received from A/C ${tr.from_account}`,
+        description: `Fund Transfer Received from A/C ${fromAcc}`,
         method: tr.payment_method || '',
         details: tr.payment_details || '',
         credit: parseFloat(tr.amount),
-        debit: 0
+        debit: 0,
+        account: fromAcc
       });
     });
 
+    // Fund transfers sent (debits)
     transfersOut.forEach(tr => {
+      const toAcc = tr.to_account?.name || tr.to_account?.accountNumber || 'N/A';
       pushEntry({
         date: tr.createdAt,
-        description: `Fund Transfer Sent to A/C ${tr.to_account}`,
+        description: `Fund Transfer Sent to A/C ${toAcc}`,
         method: tr.payment_method || '',
         details: tr.payment_details || '',
         credit: 0,
-        debit: parseFloat(tr.amount)
+        debit: parseFloat(tr.amount),
+        account: toAcc
       });
     });
 
-    // Sales
-    sales.forEach(sale => {
-      sale.payments?.forEach(pay => {
-        if (!account_id || pay.account == account_id) {
+    // Sales payments (credits)
+    for (const sale of sales) {
+      for (const pay of sale.payments || []) {
+        // If filtering by account_id, check if payment's account matches; else include all
+        if (!account_id || (pay.account && pay.account._id.toString() === account_id)) {
+          const addedByName = sale.addedBy?.name || '';
+          const customerName = sale.customer?.firstName
+            ? `${sale.customer.firstName} ${sale.customer.lastName || ''}`
+            : '';
+          const accountName = pay.account?.name || pay.account?.accountNumber || 'N/A';
+          const description = `Sell\nCustomer: ${customerName}\nInvoice No.: ${sale.invoiceNo}\nPay reference no.: ${pay.paymentRefNo}\nAdded By: ${addedByName}`;
+
           pushEntry({
             date: sale.saleDate,
-            description: `Sale - Invoice: ${sale.invoiceNo || ''}`,
+            description,
             method: pay.method || '',
             details: pay.note || '',
             credit: parseFloat(pay.amount || 0),
-            debit: 0
+            debit: 0,
+            account: accountName
           });
         }
-      });
-    });
+      }
+    }
 
-    // Purchases
-    purchases.forEach(pur => {
-      pur.payments?.forEach(pay => {
-        if (!account_id || pay.account == account_id) {
+    // Purchase payments (debits)
+    for (const pur of purchases) {
+      for (const pay of pur.payments || []) {
+        if (!account_id || (pay.account && pay.account._id.toString() === account_id)) {
+          const addedByName = pur.addedBy?.name || '';
+          const supplierName = pur.supplier?.businessName || '';
+          const accountName = pay.account?.name || pay.account?.accountNumber || 'N/A';
+          const description = `Purchase\nSupplier: ${supplierName}\nRef: ${pur.referenceNo}\nPay reference no.: ${pay.paymentRefNo}\nAdded By: ${addedByName}`;
+
           pushEntry({
             date: pur.purchaseDate || pur.transaction_date,
-            description: `Purchase - Ref: ${pur.referenceNo || pur.ref_no || ''}`,
+            description,
             method: pay.method || '',
-            details: pay.payment_details || '',
+            details: pay.note || '',
             debit: parseFloat(pay.amount || 0),
-            credit: 0
+            credit: 0,
+            account: accountName
           });
         }
-      });
-    });
+      }
+    }
 
-    // Expenses
+    // Expenses payments (debits)
     expenses.forEach(exp => {
       exp.payments?.forEach(pay => {
-        if (!account_id || pay.account == account_id) {
+        if (!account_id || (pay.account && pay.account._id.toString() === account_id)) {
+          const accountName = pay.account?.name || pay.account?.accountNumber || 'N/A';
           pushEntry({
             date: exp.transactionDate,
-            description: `Expense - ${exp.category.name || 'General'}`,
+            description: `Expense - ${exp.category?.name || 'General'}`,
             method: pay.method || '',
             details: pay.payment_details || '',
             credit: 0,
-            debit: parseFloat(pay.amount || 0)
+            debit: parseFloat(pay.amount || 0),
+            account: accountName
           });
         }
       });
     });
 
+    // Sort by date ascending
     entries.sort((a, b) => new Date(a.date) - new Date(b.date));
 
+    // Calculate opening balance based on first entry if any
     const opening_balance = entries.length > 0
       ? parseFloat(entries[0].balance) - (parseFloat(entries[0].credit || 0) - parseFloat(entries[0].debit || 0))
       : 0;

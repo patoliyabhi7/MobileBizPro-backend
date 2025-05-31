@@ -9,8 +9,8 @@ exports.getBalanceSheet = async (req, res) => {
 
     const filterByLocationAndDate = (query = {}) => ({
       ...query,
-      ...(location_id && { businessLocation: location_id }),
-      ...(date && { createdAt: { $lte: new Date(date) } }), // Changed to createdAt for all since paymentDue isn't date-based
+      ...({ businessLocation: location_id }),
+      ...({ createdAt: { $lte: new Date(date) } }), // Changed to createdAt for all since paymentDue isn't date-based
       isDeleted: false,
     });
 
@@ -55,6 +55,10 @@ exports.getBalanceSheet = async (req, res) => {
       });
     });
 
+    //calculate total liability and total asset
+    const totalLiability = supplierDue;
+    const totalAsset = totalAccountBalance + totalExpense + customerDue;
+
     // 📊 Final Response
     res.status(200).json({
       customer_due: customerDue.toFixed(2),
@@ -64,6 +68,8 @@ exports.getBalanceSheet = async (req, res) => {
       total_expense: totalExpense.toFixed(2),
       date: date || 'Till today',
       location_id: location_id || 'All locations',
+      total_liability: totalLiability.toFixed(2),
+      total_asset: totalAsset.toFixed(2),
     });
 
   } catch (err) {

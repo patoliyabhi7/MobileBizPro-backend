@@ -9,7 +9,8 @@ const saleProductSchema = new mongoose.Schema({
   quantity: { type: Number, required: true },
   unitPrice: { type: Number, required: true },
   lineTotal: { type: Number, required: true },
-  note: String
+  note: String,
+  returnDate: { type: Date }
 });
 
 const paymentSchema = new mongoose.Schema({
