@@ -10,7 +10,7 @@ exports.getProductById = async (req, res) => {
       .populate('businessLocation')
       .lean();
 
-    if (!product) return res.status(404).json({ message: 'Product not found' });
+    if (!product || product.isDeleted) return res.status(404).json({ message: 'Product not found' });
 
     const qty = await Stock.countDocuments({
       product: product._id,

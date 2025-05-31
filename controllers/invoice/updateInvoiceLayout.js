@@ -1,3 +1,6 @@
+const fs = require('fs');
+const InvoiceLayout = require('../../models/invoiceLayoutModel');
+
 exports.updateInvoiceLayout = async (req, res) => {
     try {
       const layout = await InvoiceLayout.findById(req.params.id);
