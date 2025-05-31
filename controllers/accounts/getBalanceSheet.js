@@ -9,38 +9,60 @@ exports.getBalanceSheet = async (req, res) => {
   try {
     let { location_id, date } = req.query;
 
+    // Normalize filters
     if (!location_id || location_id === 'All locations') location_id = undefined;
     if (!date || date === 'All') date = undefined;
 
+    // Base filter for purchases, sales, expenses (exclude deleted)
     const baseFilter = { isDeleted: false };
-    if (location_id) baseFilter.businessLocation = new mongoose.Types.ObjectId(location_id);
+
+    if (location_id) baseFilter.businessLocation = mongoose.Types.ObjectId(location_id);
     if (date) baseFilter.createdAt = { $lte: new Date(date) };
 
-    // Fetch sales, purchases, accounts, expenses concurrently
+    // For purchases, the date field is purchaseDate
+    const purchaseFilter = { isDeleted: false };
+    if (location_id) purchaseFilter.businessLocation = mongoose.Types.ObjectId(location_id);
+    if (date) purchaseFilter.purchaseDate = { $lte: new Date(date) };
+
+    // For sales, saleDate
+    const saleFilter = { isDeleted: false };
+    if (location_id) saleFilter.businessLocation = mongoose.Types.ObjectId(location_id);
+    if (date) saleFilter.saleDate = { $lte: new Date(date) };
+
+    // For expenses, transactionDate
+    const expenseFilter = { isDeleted: false };
+    if (location_id) expenseFilter.businessLocation = mongoose.Types.ObjectId(location_id);
+    if (date) expenseFilter.transactionDate = { $lte: new Date(date) };
+
+    // Fetch data concurrently
     const [sales, purchases, accounts, expenses] = await Promise.all([
-      Sale.find(baseFilter),
-      Purchase.find(baseFilter),
-      Account.find({ is_active: true }),
-      Expense.find(baseFilter),
+      Sale.find(saleFilter).lean(),
+      Purchase.find(purchaseFilter).lean(),
+      Account.find({ is_active: true }).lean(),
+      Expense.find(expenseFilter).lean(),
     ]);
 
-    // Calculate dues and expenses
-    const customerDue = sales.reduce((sum, s) => sum + (s.paymentDue || 0), 0);
-    const supplierDue = purchases.reduce((sum, p) => sum + (p.paymentDue || 0), 0);
-    const totalExpense = expenses.reduce((sum, e) => sum + (e.total || e.totalAmount || 0), 0);
+    // Sum customer dues from sales.paymentDue
+    const customerDue = sales.reduce((sum, s) => sum + (Number(s.paymentDue) || 0), 0);
 
-    // Calculate total account balances
+    // Sum supplier dues from purchases.paymentDue
+    const supplierDue = purchases.reduce((sum, p) => sum + (Number(p.paymentDue) || 0), 0);
+
+    // Sum expenses totalAmount or total
+    const totalExpense = expenses.reduce((sum, e) => sum + (Number(e.totalAmount || e.total || 0)), 0);
+
+    // Sum account balances
     let totalAccountBalance = 0;
     const accountBalances = [];
     accounts.forEach(acc => {
-      const bal = acc.balance || 0;
+      const bal = Number(acc.balance) || 0;
       totalAccountBalance += bal;
       accountBalances.push({ name: acc.name, balance: bal.toFixed(2) });
     });
 
-    // Calculate closing stock value using Stock -> Purchase.products.unitCost mapping
+    // Calculate closing stock value
     const stockMatch = { status: 1 };
-    if (location_id) stockMatch.businessLocation = new mongoose.Types.ObjectId(location_id);
+    if (location_id) stockMatch.businessLocation = mongoose.Types.ObjectId(location_id);
 
     const stocksGrouped = await Stock.aggregate([
       { $match: stockMatch },
@@ -49,8 +71,8 @@ exports.getBalanceSheet = async (req, res) => {
           from: 'purchases',
           localField: 'purchaseRef',
           foreignField: '_id',
-          as: 'purchaseInfo'
-        }
+          as: 'purchaseInfo',
+        },
       },
       { $unwind: '$purchaseInfo' },
       {
@@ -59,19 +81,19 @@ exports.getBalanceSheet = async (req, res) => {
             $filter: {
               input: '$purchaseInfo.products',
               as: 'prod',
-              cond: { $eq: ['$$prod.product', '$product'] }
-            }
-          }
-        }
+              cond: { $eq: ['$$prod.product', '$product'] },
+            },
+          },
+        },
       },
       { $unwind: '$matchedProduct' },
       {
         $group: {
           _id: '$purchaseRef',
           stockCount: { $sum: 1 },
-          totalUnitCost: { $sum: '$matchedProduct.unitCost' }
-        }
-      }
+          totalUnitCost: { $sum: '$matchedProduct.unitCost' },
+        },
+      },
     ]);
 
     let closingStockValue = 0;
@@ -83,7 +105,7 @@ exports.getBalanceSheet = async (req, res) => {
     const totalLiability = supplierDue;
     const totalAsset = totalAccountBalance + customerDue + closingStockValue;
 
-    res.status(200).json({
+    return res.status(200).json({
       customer_due: customerDue.toFixed(2),
       supplier_due: supplierDue.toFixed(2),
       account_balance: totalAccountBalance.toFixed(2),
@@ -98,6 +120,6 @@ exports.getBalanceSheet = async (req, res) => {
 
   } catch (error) {
     console.error('Error in getBalanceSheet:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 };
