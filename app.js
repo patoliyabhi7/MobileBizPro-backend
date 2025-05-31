@@ -62,4 +62,7 @@ app.use('/api/account-types', accountTypeRoutes);
 const accountRoutes = require('./routes/accountRoutes');
 app.use('/api/accounts', accountRoutes);
 
+const invoiceRoutes = require('./routes/invoiceRoutes');
+app.use('/api/invoices', invoiceRoutes);
+
 module.exports = app;
