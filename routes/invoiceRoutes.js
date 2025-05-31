@@ -10,7 +10,9 @@ const { getInvoiceLayoutById } = require('../controllers/invoice/getInvoiceLayou
 const { updateInvoiceLayout } = require('../controllers/invoice/updateInvoiceLayout');
 const { deleteInvoiceLayout } = require('../controllers/invoice/deleteInvoiceLayout');
 const { setDefaultInvoiceLayout } = require('../controllers/invoice/setDefaultInvoiceLayout');
+const { generateInvoice } = require('../controllers/invoice/generateInvoice');
 
+router.get('/generate/:saleId', protect, generateInvoice);
 router.post('/layouts/', protect, authorizeRoles('admin'), uploadSingle('logo'), addInvoiceLayout);
 router.get('/layouts/', protect, getAllInvoiceLayouts);
 router.get('/layouts/:id', protect, getInvoiceLayoutById);
