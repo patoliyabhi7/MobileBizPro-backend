@@ -1,6 +1,7 @@
 const Expense = require('../../models/expenseModel');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 const { revertAccountBalances } = require('../../utils/revertAccountBalances');
+const generateAutoId = require('../../utils/generateAutoId');
 
 exports.updateExpense = async (req, res) => {
   try {
