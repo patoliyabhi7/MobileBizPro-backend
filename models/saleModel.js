@@ -41,7 +41,7 @@ const saleSchema = new mongoose.Schema({
   paymentDue: { type: Number },
   status: { type: String, enum: ['completed', 'return'], default: 'completed' },
   paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
-  shippingStatus: { type: String, enum: ['shipped', 'pending'], default: 'pending' },
+  shippingStatus: { type: String, enum: ['shipped', 'pending', "delivered"], default: 'pending' },
   totalItems: { type: Number },
   typesOfService: String,
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
