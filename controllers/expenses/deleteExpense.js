@@ -1,4 +1,5 @@
 const Expense = require('../../models/expenseModel');
+const { revertAccountBalances } = require('../../utils/revertAccountBalances');
 
 exports.deleteExpense = async (req, res) => {
     try {
