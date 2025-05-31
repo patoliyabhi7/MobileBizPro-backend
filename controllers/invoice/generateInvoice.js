@@ -1,190 +1,341 @@
 const mongoose = require('mongoose');
 const puppeteer = require('puppeteer');
+const numberToWords = require('number-to-words');
 const Sale = require('../../models/saleModel');
 const InvoiceLayout = require('../../models/invoiceLayoutModel');
 const path = require('path');
+const fs = require('fs');
 
 exports.generateInvoice = async (req, res) => {
-  try {
-    const { saleId } = req.params;
+    try {
+        const { saleId } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(saleId)) {
-      return res.status(400).json({ error: 'Invalid Sale ID format' });
-    }
+        if (!mongoose.Types.ObjectId.isValid(saleId)) {
+            return res.status(400).json({ error: 'Invalid Sale ID format' });
+        }
 
-    const sale = await Sale.findById(saleId)
-      .populate('customer')
-      .populate('addedBy')
-      .populate('businessLocation')
-      .populate('products.product')
-      .populate('payments.method')
-      .populate('payments.account');
+        // Fetch sale data with relations
+        const sale = await Sale.findOne({ _id: saleId })
+            .populate('customer')
+            .populate('addedBy')
+            .populate('businessLocation')
+            .populate({
+                path: 'products.product',
+                populate: {
+                    path: 'brand',
+                },
+            })
+            .populate('payments.method')
+            .populate('payments.account');
 
-    if (!sale || sale.isDeleted) {
-      return res.status(404).json({ error: 'Sale not found' });
-    }
+        if (!sale || sale.isDeleted) {
+            return res.status(404).json({ error: 'Sale not found' });
+        }
 
-    const layout = await InvoiceLayout.findOne({ isDefault: true, isDeleted: false });
+        // Fetch default invoice layout
+        const layout = await InvoiceLayout.findOne({ isDefault: true, isDeleted: false });
+        if (!layout) {
+            return res.status(400).json({ error: 'Default invoice layout not set' });
+        }
 
-    if (!layout) {
-      return res.status(400).json({ error: 'Default invoice layout not set' });
-    }
+        // Calculate totals and words
+        const totalQuantity = sale.products.reduce((sum, p) => sum + (p.quantity || 0), 0);
+        const totalPaid = sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+        const paymentDue = (sale.total || 0) - totalPaid;
+        const totalInWords = capitalizeFirstChar(numberToIndianWords(Math.floor(sale.total || 0))) + ' rupees only';
 
-    const totalQuantity = sale.products.reduce((sum, p) => sum + (p.quantity || 0), 0);
-    const totalPaid = sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const totalInWords = numberToWords(sale.total || 0);
+        // Prepare logo as base64 if exists
+        let logoTag = `<strong>${layout.shopName || ''}</strong>`;
 
-    const productRows = sale.products.map(prod => `
-      <tr>
-        <td>${prod.product?.name || ''}</td>
-        <td>${prod.imeiNo || '-'}</td>
-        <td>${prod.color || '-'}</td>
-        <td>${prod.storage || '-'}</td>
-        <td>${prod.quantity || 0}</td>
-        <td>${(prod.unitPrice || 0).toFixed(2)}</td>
-        <td>${(prod.lineTotal || 0).toFixed(2)}</td>
-      </tr>
-    `).join('');
+        // Only try to embed if logo is defined
+        if (layout.logo) {
+            // Full path to logo file
+            const logoPath = path.join(__dirname, '../../uploads', path.basename(layout.logo));
+            
+            if (fs.existsSync(logoPath)) {
+                const imgData = fs.readFileSync(logoPath).toString('base64');
+                const ext = path.extname(layout.logo).toLowerCase();
+                const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
 
-    const paymentRows = sale.payments.map(p => `
-      <tr>
-        <td>${p.method?.name || '-'}</td>
-        <td>${p.account?.name || '-'}</td>
-        <td>${p.paymentRefNo || '-'}</td>
-        <td>${formatDate(p.paidOn)}</td>
-        <td>${(p.amount || 0).toFixed(2)}</td>
-      </tr>
-    `).join('');
+                logoTag = `<img src="data:${mime};base64,${imgData}" style="height:150px; width:auto;">`;
+            } else {
+                console.warn('Logo file not found:', logoPath);
+            }
+        }
 
-    const logoPath = layout.logo ? `file://${path.join(__dirname, '../../uploads/', layout.logo)}` : '';
+        // Generate product table rows with your specific columns including IMEI
+        const productRows = sale.products
+            .map((p, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>
+        ${p.product?.brand?.name + " " + p.product?.productName + " " + p.storage + " " + p.color || ''}
+      </td>
+      <td>${p.imeiNo || '-'}</td>
+      <td>${p.quantity || 0}</td>
+      <td>₹${(p.unitPrice || 0).toFixed(2)}</td>
+      <td>₹${(p.lineTotal || 0).toFixed(2)}</td>
+    </tr>
+  `)
+            .join('');
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 40px; }
-          .header, .footer { text-align: center; }
-          .logo { max-height: 80px; }
-          .invoice-box { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          .invoice-box th, .invoice-box td { border: 1px solid #ddd; padding: 8px; }
-          .invoice-box th { background-color: #f2f2f2; }
-          .section-title { margin-top: 40px; font-size: 18px; font-weight: bold; }
-          .totals td { font-weight: bold; }
-        </style>
-      </head>
-      <body>
+
+        // HTML invoice with your exact style and black color, modern border styles
+        const html = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <title>Invoice</title>
+      <style>
+        body {
+          font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+          margin: 0;
+          padding: 20px;
+          background: #fff;
+          color: #000;
+          font-size: 14px;
+        }
+        .invoice-box {
+          max-width: 820px;
+          margin: auto;
+          padding: 30px;
+          border: 2px solid #000;
+          border-radius: 8px;
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .header img {
+          max-height: 100px;
+        }
+        .shop-info {
+          text-align: right;
+        }
+        .shop-info h2 {
+          font-size: 22px;
+          margin: 0;
+        }
+        .shop-info p {
+          font-size: 12px;
+          margin: 2px 0;
+        }
+        hr {
+          border: 1px dashed #000;
+          margin: 20px 0;
+        }
+        .customer-info,
+        .invoice-meta {
+          display: flex;
+          justify-content: space-between;
+          font-size: 13px;
+          margin-bottom: 10px;
+        }
+        table.table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 20px;
+          font-size: 13px;
+          border: none;
+        }
+        table.table thead th {
+          border-bottom: 2px solid #000;
+          padding: 10px 8px;
+          font-weight: 600;
+          text-align: left;
+        }
+        table.table tbody tr:not(:last-child) {
+          border-bottom: 1px solid #ccc;
+        }
+        table.table tbody td {
+          padding: 12px 8px;
+          vertical-align: middle;
+        }
+        /* Zebra stripes */
+        table.table tbody tr:nth-child(even) {
+          background-color: #f9f9f9;
+        }
+        .summary {
+          margin-top: 30px;
+          font-size: 13px;
+        }
+        .summary table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .summary td {
+          padding: 6px 0;
+          border-bottom: 1px solid #ddd;
+        }
+        .summary tr.total td {
+          font-weight: bold;
+          font-size: 14px;
+          border-bottom: none;
+        }
+        .terms {
+          margin-top: 25px;
+          font-size: 12px;
+          line-height: 1.6;
+        }
+        .terms h4 {
+          margin-bottom: 6px;
+          font-size: 13px;
+          text-decoration: underline;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="invoice-box">
         <div class="header">
-          ${logoPath ? `<img src="${logoPath}" class="logo"><br>` : ''}
-          <h1>${layout.shopName}</h1>
-          <p>${layout.slogan || ''}</p>
-          <p>${layout.address || ''}</p>
-          <p>Mobile: ${layout.mobileNumber || ''}</p>
+          <div class="logo">${logoTag}</div>
+          <div class="shop-info">
+            <h2>${layout.shopName || ''}</h2>
+            <p>${layout.slogan || ''}</p>
+            <p>${layout.address || ''}</p>
+            <p>Mobile: ${layout.mobileNumber || '-'}</p>
+          </div>
         </div>
 
-        <hr>
+        <hr />
 
-        <h2>Invoice</h2>
-        <p><strong>Invoice No:</strong> ${sale.invoiceNo || sale._id.toString()}</p>
-        <p><strong>Date:</strong> ${formatDate(sale.saleDate)}</p>
+        <div class="customer-info">
+          <div>
+            <strong>Customer:</strong> ${sale.customer?.firstName || ''} ${sale.customer?.lastName || ''}<br/>
+            <strong>Mobile:</strong> ${sale.contactNumber || '-'}
+          </div>
+          <div class="invoice-meta">
+            <div>
+              <strong>Invoice #:</strong> ${sale.invoiceNo || sale._id}<br/>
+              <strong>Date:</strong> ${formatDate(sale.saleDate)}
+            </div>
+          </div>
+        </div>
 
-        <h3>Customer Details</h3>
-        <p><strong>Name:</strong> ${sale.customer?.firstName || ''} ${sale.customer?.lastName || ''}</p>
-        <p><strong>Mobile:</strong> ${sale.customer?.mobileNumber || '-'}</p>
-
-        <div class="section-title">Products</div>
-        <table class="invoice-box">
+        <table class="table" cellpadding="0" cellspacing="0">
           <thead>
             <tr>
-              <th>Product</th>
+              <th>#</th>
+              <th>Product Detail</th>
               <th>IMEI</th>
-              <th>Color</th>
-              <th>Storage</th>
               <th>Qty</th>
               <th>Unit Price</th>
-              <th>Line Total</th>
+              <th>Subtotal</th>
             </tr>
           </thead>
-          <tbody>${productRows}</tbody>
-        </table>
-
-        <div class="section-title">Payments</div>
-        <table class="invoice-box">
-          <thead>
-            <tr>
-              <th>Method</th>
-              <th>Account</th>
-              <th>Reference</th>
-              <th>Paid On</th>
-              <th>Amount</th>
-            </tr>
-          </thead>
-          <tbody>${paymentRows}</tbody>
-        </table>
-
-        <div class="section-title">Summary</div>
-        <table class="invoice-box">
-          <tbody class="totals">
-            <tr><td>Total Quantity</td><td>${totalQuantity}</td></tr>
-            <tr><td>Subtotal</td><td>${(sale.total || 0).toFixed(2)}</td></tr>
-            <tr><td>Total Paid</td><td>${totalPaid.toFixed(2)}</td></tr>
-            <tr><td>Total</td><td>${(sale.total || 0).toFixed(2)}</td></tr>
-            <tr><td>Total in Words</td><td>${totalInWords}</td></tr>
+          <tbody>
+            ${productRows}
           </tbody>
         </table>
 
-        <div class="section-title">Terms and Conditions</div>
-        <p>${layout.termsAndConditions || 'Thank you for shopping with us!'}</p>
-
-        <div class="footer">
-          <p>Thank you for your business!</p>
+        <div class="summary">
+          <table>
+            <tr>
+              <td><strong>Payment Method:</strong></td>
+              <td>${sale.payments[0]?.method?.name || '-'}</td>
+            </tr>
+            <tr>
+              <td>Total Quantity:</td>
+              <td>${totalQuantity}</td>
+            </tr>
+            <tr>
+              <td>Subtotal:</td>
+              <td>₹${(sale.total || 0).toFixed(2)}</td>
+            </tr>
+            <tr class="total">
+              <td>Total Paid:</td>
+              <td>₹${totalPaid.toFixed(2)}</td>
+            </tr>
+            <tr class="total">
+              <td>Payment Due:</td>
+              <td>₹${paymentDue.toFixed(2)}</td>
+            </tr>
+            <tr class="total">
+              <td>Total (in words):</td>
+              <td>${totalInWords}</td>
+            </tr>
+          </table>
         </div>
-      </body>
-      </html>
+
+        <div class="terms">
+          <h4>Terms & Conditions</h4>
+          <p>${layout.termsAndConditions || 'Thank you for your purchase!'}</p>
+        </div>
+      </div>
+    </body>
+    </html>
     `;
 
-    const browser = await puppeteer.launch({ headless: 'new' });
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+        // Launch puppeteer to generate PDF
+        const browser = await puppeteer.launch({ headless: 'new' });
+        const page = await browser.newPage();
+        await page.setContent(html, { waitUntil: 'networkidle0' });
+        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+        await browser.close();
 
-    const pdfBuffer = await page.pdf({ format: 'A4' });
-    await browser.close();
-
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename=invoice-${sale.invoiceNo || sale._id}.pdf`,
-    });
-
-    return res.send(pdfBuffer);
-  } catch (err) {
-    console.error('Error generating invoice:', err);
-    res.status(500).json({ error: err.message });
-  }
+        // Send PDF as response
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename=invoice-${sale.invoiceNo || sale._id}.pdf`,
+        });
+        res.send(pdfBuffer);
+    } catch (err) {
+        console.error('Error generating invoice:', err);
+        res.status(500).json({ error: err.message });
+    }
 };
 
-// Format date to dd/mm/yyyy
 function formatDate(date) {
-  const d = new Date(date);
-  return isNaN(d) ? '-' : `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1)
-    .toString().padStart(2, '0')}/${d.getFullYear()}`;
+    const d = new Date(date);
+    return isNaN(d)
+        ? '-'
+        : `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1)
+            .toString()
+            .padStart(2, '0')}/${d.getFullYear()}`;
 }
 
-// Helper: Convert number to words (basic Indian style)
-function numberToWords(num) {
-  const a = [
-    '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
-    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
-    'Seventeen', 'Eighteen', 'Nineteen',
-  ];
-  const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+function numberToIndianWords(num) {
+    const ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+        'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+    const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
 
-  if ((num = num.toString()).length > 9) return 'Overflow';
-  let n = ('000000000' + num).substr(-9).match(/.{1,3}/g);
-  let str = '';
-  str += (n[0] != 0) ? (a[Number(n[0])] || b[n[0][0]] + ' ' + a[n[0][1]]) + ' Crore ' : '';
-  str += (n[1] != 0) ? (a[Number(n[1])] || b[n[1][0]] + ' ' + a[n[1][1]]) + ' Lakh ' : '';
-  str += (n[2] != 0) ? (a[Number(n[2])] || b[n[2][0]] + ' ' + a[n[2][1]]) + ' Thousand ' : '';
-  str += (n[3] != 0) ? (a[Number(n[3])] || b[n[3][0]] + ' ' + a[n[3][1]]) + ' Hundred ' : '';
-  str += (n[4] != 0) ? ((str != '') ? 'and ' : '') + (a[Number(n[4])] || b[n[4][0]] + ' ' + a[n[4][1]]) : '';
-  return str.trim() + ' Only';
+    if (num === 0) return 'zero';
+
+    function numToWords(n, suffix) {
+        let str = '';
+        if (n > 19) {
+            str += tens[Math.floor(n / 10)] + (n % 10 !== 0 ? ' ' + ones[n % 10] : '');
+        } else if (n > 0) {
+            str += ones[n];
+        }
+        if (n > 0) str += ' ' + suffix + ' ';
+        return str;
+    }
+
+    let crore = Math.floor(num / 10000000);
+    let lakh = Math.floor((num % 10000000) / 100000);
+    let thousand = Math.floor((num % 100000) / 1000);
+    let hundred = Math.floor((num % 1000) / 100);
+    let rest = num % 100;
+
+    let result = '';
+    if (crore > 0) result += numToWords(crore, 'crore');
+    if (lakh > 0) result += numToWords(lakh, 'lakh');
+    if (thousand > 0) result += numToWords(thousand, 'thousand');
+    if (hundred > 0) result += numToWords(hundred, 'hundred');
+    if (rest > 0) {
+        if (result !== '') result += 'and ';
+        if (rest > 19) {
+            result += tens[Math.floor(rest / 10)] + (rest % 10 !== 0 ? ' ' + ones[rest % 10] : '');
+        } else {
+            result += ones[rest];
+        }
+    }
+    return result.trim();
+}
+
+function capitalizeFirstChar(str) {
+    if (!str) return '';
+    return str.charAt(0).toUpperCase() + str.slice(1);
 }
