@@ -1,6 +1,8 @@
 const Account = require('../models/accountModel');
 
 exports.updateAccountBalances = async (payments, type) => {
+    if (!payments?.length) return;
+
     for (const payment of payments) {
         if (!payment.account) continue;
 
@@ -8,17 +10,15 @@ exports.updateAccountBalances = async (payments, type) => {
         if (!account) continue;
 
         let change = 0;
-
         switch (type) {
             case 'sale':
             case 'purchase_return':
-                change = payment.amount; // incoming money
+                change = payment.amount;
                 break;
-
             case 'purchase':
             case 'expense':
             case 'sale_return':
-                change = -payment.amount; // outgoing money
+                change = -payment.amount;
                 break;
         }
 

@@ -13,9 +13,7 @@ exports.addSale = async (req, res) => {
       return res.status(400).json({ error: 'businessLocation is required' });
     }
 
-    // ⛔️ Remove old quantity validation logic, handled by consumeStock now.
-
-    // 🧾 Parse payments
+   // 🧾 Parse payments
     let payments = [];
     if (req.body.payments) {
       if (typeof req.body.payments === 'string') {
