@@ -16,22 +16,22 @@ exports.getBalanceSheet = async (req, res) => {
     // Base filter for purchases, sales, expenses (exclude deleted)
     const baseFilter = { isDeleted: false };
 
-    if (location_id) baseFilter.businessLocation = mongoose.Types.ObjectId(location_id);
+    if (location_id) baseFilter.businessLocation = new mongoose.Types.ObjectId(location_id);
     if (date) baseFilter.createdAt = { $lte: new Date(date) };
 
     // For purchases, the date field is purchaseDate
     const purchaseFilter = { isDeleted: false };
-    if (location_id) purchaseFilter.businessLocation = mongoose.Types.ObjectId(location_id);
+    if (location_id) purchaseFilter.businessLocation = new mongoose.Types.ObjectId(location_id);
     if (date) purchaseFilter.purchaseDate = { $lte: new Date(date) };
 
     // For sales, saleDate
     const saleFilter = { isDeleted: false };
-    if (location_id) saleFilter.businessLocation = mongoose.Types.ObjectId(location_id);
+    if (location_id) saleFilter.businessLocation = new mongoose.Types.ObjectId(location_id);
     if (date) saleFilter.saleDate = { $lte: new Date(date) };
 
     // For expenses, transactionDate
     const expenseFilter = { isDeleted: false };
-    if (location_id) expenseFilter.businessLocation = mongoose.Types.ObjectId(location_id);
+    if (location_id) expenseFilter.businessLocation = new mongoose.Types.ObjectId(location_id);
     if (date) expenseFilter.transactionDate = { $lte: new Date(date) };
 
     // Fetch data concurrently
@@ -62,7 +62,7 @@ exports.getBalanceSheet = async (req, res) => {
 
     // Calculate closing stock value
     const stockMatch = { status: 1 };
-    if (location_id) stockMatch.businessLocation = mongoose.Types.ObjectId(location_id);
+    if (location_id) stockMatch.businessLocation = new mongoose.Types.ObjectId(location_id);
 
     const stocksGrouped = await Stock.aggregate([
       { $match: stockMatch },

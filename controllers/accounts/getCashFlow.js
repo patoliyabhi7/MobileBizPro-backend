@@ -139,7 +139,7 @@ exports.getCashFlow = async (req, res) => {
           pushEntry({
             date: sale.saleDate,
             description,
-            method: pay.method || '',
+            method: pay.method?.name || '',
             details: pay.note || '',
             credit: parseFloat(pay.amount || 0),
             debit: 0,
@@ -161,7 +161,7 @@ exports.getCashFlow = async (req, res) => {
           pushEntry({
             date: pur.purchaseDate || pur.transaction_date,
             description,
-            method: pay.method || '',
+            method: pay.method?.name || '',
             details: pay.note || '',
             debit: parseFloat(pay.amount || 0),
             credit: 0,
@@ -179,7 +179,7 @@ exports.getCashFlow = async (req, res) => {
           pushEntry({
             date: exp.transactionDate,
             description: `Expense - ${exp.category?.name || 'General'}`,
-            method: pay.method || '',
+            method: pay.method?.name || '',
             details: pay.payment_details || '',
             credit: 0,
             debit: parseFloat(pay.amount || 0),

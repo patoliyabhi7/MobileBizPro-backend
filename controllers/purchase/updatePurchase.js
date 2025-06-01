@@ -13,16 +13,20 @@ exports.updatePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found or deleted' });
     }
 
-    // Validate & parse products
+    // 👇 Validate & parse products
     if (req.body.products) {
-      let products = typeof req.body.products === 'string' ? JSON.parse(req.body.products) : req.body.products;
+      let products = typeof req.body.products === 'string'
+        ? JSON.parse(req.body.products)
+        : req.body.products;
+
       if (!products.every(p => p.quantity === 1)) {
         return res.status(400).json({ error: 'Each product must have quantity = 1' });
       }
+
       req.body.products = products;
     }
 
-    // Handle document replacement
+    // 👇 Handle document replacement
     if (req.files?.length > 0) {
       if (oldPurchase.documents?.length > 0) {
         oldPurchase.documents.forEach(doc => {
@@ -32,7 +36,7 @@ exports.updatePurchase = async (req, res) => {
       req.body.documents = req.files.map(file => `uploads/${file.filename}`);
     }
 
-    // Handle payments
+    // 👇 Handle payments
     let newPayments = [];
     if ('payments' in req.body) {
       if (typeof req.body.payments === 'string') {
@@ -57,34 +61,40 @@ exports.updatePurchase = async (req, res) => {
 
     req.body.addedBy = req.user.userId;
 
-    // Fully revert old records
+    // 👇 Fully revert stock and account balances
     await revertStock(oldPurchase.products);
     await revertAccountBalances(oldPurchase.payments || [], 'purchase');
 
-    // Update the record
-    const updatedPurchase = await Purchase.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    // 👇 Update purchase
+    const updatedPurchase = await Purchase.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    )
       .populate('addedBy', 'name _id')
       .populate('payments.account')
+      .populate('payments.method')
       .populate('supplier', 'businessName firstName lastName')
       .populate('businessLocation', 'name')
-      .populate('products.product', 'productName')
-      .populate('payments.method');
+      .populate('products.product', 'productName');
 
     if (!updatedPurchase) {
       return res.status(404).json({ message: 'Purchase not found after update' });
     }
 
-    // Reapply stock and payment effects
+    // 👇 Recreate stock
     if (req.body.products?.length > 0) {
       await createStock(req.body.products, updatedPurchase._id, updatedPurchase.businessLocation);
     }
 
-    if (newPayments?.length > 0) {
+    // 👇 Reapply account balances
+    if (newPayments.length > 0) {
       await updateAccountBalances(newPayments, 'purchase');
     }
 
     res.status(200).json({ message: 'Purchase updated successfully', updatedPurchase });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 };

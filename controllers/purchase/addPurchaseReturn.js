@@ -11,7 +11,7 @@ exports.addPurchaseReturn = async (req, res) => {
       return res.status(400).json({ error: 'purchaseId and businessLocation are required' });
     }
 
-    const purchase = await Purchase.findById(purchaseId).lean();
+    const purchase = await Purchase.findById(purchaseId);
     if (!purchase || purchase.isDeleted) {
       return res.status(404).json({ error: 'Purchase not found' });
     }
@@ -20,27 +20,33 @@ exports.addPurchaseReturn = async (req, res) => {
       return res.status(403).json({ error: 'This purchase does not belong to the given business location' });
     }
 
-    await Purchase.findByIdAndUpdate(purchaseId, { status: 'return' });
+    const returnDate = new Date();
+
+    // ✅ Update product returnDate & purchase status
+    purchase.status = 'return';
+    purchase.products = purchase.products.map(p => ({
+      ...p.toObject(),
+      returnDate
+    }));
+    await purchase.save();
 
     const payments = purchase.payments || [];
-    const returnAmount = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    let returnPayments = [];
+    let totalReturnAmount = 0;
 
-    if (returnAmount <= 0) {
-      return res.status(400).json({ error: 'No amount received to return' });
+    if (payments.length > 0) {
+      totalReturnAmount = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+      returnPayments = payments.map(p => ({
+        amount: p.amount,
+        paidOn: returnDate,
+        account: p.account,
+        method: p.method,
+        note: 'Purchase Return'
+      }));
+
+      await updateAccountBalances(returnPayments, 'purchase_return');
     }
 
-    const returnPayments = payments.map(p => ({
-      amount: p.amount,
-      paidOn: new Date(),
-      account: p.account,
-      method: p.method,
-      note: 'Purchase Return'
-    }));
-
-    // 👇 Update account balances for the return
-    await updateAccountBalances(returnPayments, 'purchase_return');
-
-    // 👇 Mark related stock as consumed
     if (purchase.products?.length > 0) {
       await consumeStock(purchase.products);
     }
@@ -48,7 +54,7 @@ exports.addPurchaseReturn = async (req, res) => {
     res.status(200).json({
       message: 'Purchase return processed successfully',
       returnPayments,
-      totalReturnAmount: returnAmount
+      totalReturnAmount
     });
   } catch (err) {
     console.error(err);
