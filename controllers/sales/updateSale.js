@@ -1,18 +1,37 @@
+const mongoose = require('mongoose');
+const Sale = require('../../models/saleModel');
+const path = require('path');
+const fs = require('fs');
+const generateAutoId = require('../../utils/generateAutoId');
+const { updateAccountBalances } = require('../../utils/updateAccountBalance');
+const { revertAccountBalances } = require('../../utils/revertAccountBalances');
+const revertStock = require('../../utils/revertStock');
+const consumeStock = require('../../utils/consumeStock');
+
 exports.updateSale = async (req, res) => {
   try {
     const saleId = req.params.id;
-    const oldSale = await Sale.findById(saleId).lean();
+
+    if (!mongoose.Types.ObjectId.isValid(saleId)) {
+      return res.status(400).json({ error: 'Invalid sale ID format' });
+    }
+
+    const updatedsaleId = new mongoose.Types.ObjectId(saleId);
+    const oldSale = await Sale.findById(updatedsaleId).lean();
     if (!oldSale) {
       return res.status(404).json({ message: 'Sale not found' });
     }
 
-    // 1) Determine businessLocation (from body or oldSale)
+    // Clone old payments to prevent mutation issues
+    const oldPaymentsClone = JSON.parse(JSON.stringify(oldSale.payments || []));
+
+    // Determine businessLocation
     const businessLocation = req.body.businessLocation || oldSale.businessLocation?.toString();
     if (!businessLocation) {
       return res.status(400).json({ error: 'businessLocation is required' });
     }
 
-    // 2) Handle document replacement
+    // Handle document replacement
     if (req.files?.length > 0 && Array.isArray(oldSale.documents)) {
       oldSale.documents.forEach(docPath => {
         if (fs.existsSync(docPath)) fs.unlinkSync(docPath);
@@ -20,7 +39,7 @@ exports.updateSale = async (req, res) => {
       req.body.documents = req.files.map(file => path.join('uploads', file.filename));
     }
 
-    // 3) Handle payments parsing
+    // Handle payments parsing and formatting
     let newPayments = [];
     if ('payments' in req.body) {
       if (typeof req.body.payments === 'string') {
@@ -33,28 +52,30 @@ exports.updateSale = async (req, res) => {
         newPayments = req.body.payments;
       }
 
-      // Assign a fresh ref no.
+      // Assign new ref no
       const newRefNo = await generateAutoId('SALEPYMNT');
       newPayments = newPayments.map(p => ({
         ...p,
         paidOn: new Date(p.paidOn),
-        paymentRefNo: newRefNo
+        paymentRefNo: newRefNo,
+        amount: Number(p.amount || 0)
       }));
 
       req.body.payments = newPayments;
     }
 
-    req.body.addedBy = req.user.userId; // whoever is editing
+    req.body.addedBy = req.user.userId;
 
-    // 4) Revert old account balances & stock
-    if (Array.isArray(oldSale.payments) && oldSale.payments.length > 0) {
-      await revertAccountBalances(oldSale.payments, 'sale');
+    // Revert old account balances and stock
+    if (oldPaymentsClone.length > 0) {
+      await revertAccountBalances(oldPaymentsClone, 'sale');
     }
+
     if (Array.isArray(oldSale.products) && oldSale.products.length > 0) {
       await revertStock(oldSale.products, businessLocation);
     }
 
-    // 5) Apply the update
+    // Update sale
     const updatedSale = await Sale.findByIdAndUpdate(
       saleId,
       req.body,
@@ -71,19 +92,19 @@ exports.updateSale = async (req, res) => {
       return res.status(404).json({ message: 'Sale not found after update' });
     }
 
-    // 6) Consume stock for newly provided products (if any)
+    // Consume stock again
     if (Array.isArray(req.body.products) && req.body.products.length > 0) {
       await consumeStock(req.body.products);
     }
 
-    // 7) Apply new payments
+    // Update account balances again
     if (newPayments.length > 0) {
       await updateAccountBalances(newPayments, 'sale');
     }
 
     res.status(200).json({ message: 'Sale updated successfully', sale: updatedSale });
   } catch (err) {
-    console.error(err);
+    console.error('Update sale failed:', err);
     res.status(500).json({ error: err.message });
   }
 };
