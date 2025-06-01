@@ -1,17 +1,20 @@
+const mongoose = require('mongoose');
 const Product = require('../../models/productModel');
 const Stock = require('../../models/stockModel');
 
 exports.getPurchasedProducts = async (req, res) => {
   try {
-    const { businessLocation } = req.params;
+    const rawLocationId = req.params.locationId;
 
-    if (!businessLocation) {
-      return res.status(400).json({ error: 'businessLocation is required' });
+    if (!mongoose.Types.ObjectId.isValid(rawLocationId)) {
+      return res.status(400).json({ error: 'Invalid Location ID format' });
     }
+
+    const locationId = new mongoose.Types.ObjectId(rawLocationId);
 
     // Get available (not sold) stock at this location
     const stocks = await Stock.find({
-      businessLocation,
+      businessLocation: locationId,
       status: 1 // Only in-stock items
     }).populate({
       path: 'product',
