@@ -7,6 +7,11 @@ exports.addExpense = async (req, res) => {
     req.body.addedBy = req.user.userId;
     const referenceNo = req.body.referenceNo || await generateAutoId('EXP');
     const filePaths = req.files?.map(file => `uploads/${file.filename}`) || [];
+    ['expenseFor', 'expenseForContact'].forEach(field => {
+      if (req.body[field] === '') {
+        delete req.body[field];
+      }
+    });
     // If payments are sent as JSON string (common in multipart form-data), parse them
     let payments = [];
     if (req.body.payments) {

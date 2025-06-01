@@ -8,52 +8,17 @@ exports.getCashFlow = async (req, res) => {
   try {
     let { account_id, location_id, account_type, start_date, end_date } = req.query;
 
-    // Normalize filters: if "All" or "All locations", set to undefined to mean no filter
     if (!account_id || account_id === 'All') account_id = undefined;
     if (!location_id || location_id === 'All locations') location_id = undefined;
     if (!account_type || account_type === 'All') account_type = undefined;
 
-    let runningBalance = 0;
-    let totalCredit = 0;
-    let totalDebit = 0;
-    const entries = [];
-
     const isInRange = (date) => {
       if (!start_date || !end_date) return true;
       const d = new Date(date);
-      return d >= new Date(start_date) && d <= new Date(end_date);
-    };
-
-    const pushEntry = ({ date, description, method, details, debit, credit, account }) => {
-      if (!isInRange(date)) return;
-
-      if (credit) {
-        runningBalance += credit;
-        totalCredit += credit;
-      }
-
-      if (debit) {
-        runningBalance -= debit;
-        totalDebit += debit;
-      }
-
-      const transaction_type = credit ? 'credit' : 'debit';
-      if (!account_type || transaction_type === account_type) {
-        entries.push({
-          date,
-          account,
-          description,
-          paymentMethod: method || '',
-          paymentDetails: details || '',
-          debit: debit ? debit.toFixed(2) : '',
-          credit: credit ? credit.toFixed(2) : '',
-          balance: runningBalance.toFixed(2),
-          transaction_type
-        });
-      }
-    };
-
-    // Build filters for each model, apply only if value is defined
+      const start = new Date(start_date);
+      const end = new Date(new Date(end_date).setHours(23, 59, 59, 999));
+      return d >= start && d <= end;
+    };    
 
     const depositFilter = {};
     if (account_id) depositFilter.to_account = account_id;
@@ -77,12 +42,44 @@ exports.getCashFlow = async (req, res) => {
       Deposit.find(depositFilter).populate('to_account'),
       FundTransfer.find(transfersOutFilter).populate('from_account to_account'),
       FundTransfer.find(transfersInFilter).populate('from_account to_account'),
-      Sale.find(saleFilter).populate('addedBy customer payments.account'),
-      Purchase.find(purchaseFilter).populate('addedBy supplier payments.account'),
-      Expense.find(expenseFilter).populate('payments.account category'),
+      Sale.find(saleFilter).populate('addedBy customer payments.account payments.method'),
+      Purchase.find(purchaseFilter).populate('addedBy supplier payments.account payments.method'),
+      Expense.find(expenseFilter).populate('payments.account payments.method category'),
     ]);
 
-    // Process deposits (credits)
+    let runningBalance = 0;
+    let totalCredit = 0;
+    let totalDebit = 0;
+    const entries = [];
+
+    const pushEntry = ({ date, description, method, details, debit, credit, account }) => {
+      if (!isInRange(date)) return;
+
+      const transaction_type = credit ? 'credit' : 'debit';
+      if (account_type && transaction_type !== account_type) return;
+
+      if (credit) {
+        runningBalance += credit;
+        totalCredit += credit;
+      }
+      if (debit) {
+        runningBalance -= debit;
+        totalDebit += debit;
+      }
+
+      entries.push({
+        date,
+        account,
+        description,
+        paymentMethod: method || '',
+        paymentDetails: details || '',
+        debit: debit ? debit.toFixed(2) : '',
+        credit: credit ? credit.toFixed(2) : '',
+        balance: runningBalance.toFixed(2),
+        transaction_type,
+      });
+    };
+
     deposits.forEach(dep => {
       const accountName = dep.to_account?.name || dep.to_account?.accountNumber || 'N/A';
       pushEntry({
@@ -96,7 +93,6 @@ exports.getCashFlow = async (req, res) => {
       });
     });
 
-    // Fund transfers received (credits)
     transfersIn.forEach(tr => {
       const fromAcc = tr.from_account?.name || tr.from_account?.accountNumber || 'N/A';
       pushEntry({
@@ -110,7 +106,6 @@ exports.getCashFlow = async (req, res) => {
       });
     });
 
-    // Fund transfers sent (debits)
     transfersOut.forEach(tr => {
       const toAcc = tr.to_account?.name || tr.to_account?.accountNumber || 'N/A';
       pushEntry({
@@ -124,10 +119,8 @@ exports.getCashFlow = async (req, res) => {
       });
     });
 
-    // Sales payments (credits)
     for (const sale of sales) {
       for (const pay of sale.payments || []) {
-        // If filtering by account_id, check if payment's account matches; else include all
         if (!account_id || (pay.account && pay.account._id.toString() === account_id)) {
           const addedByName = sale.addedBy?.name || '';
           const customerName = sale.customer?.firstName
@@ -137,7 +130,7 @@ exports.getCashFlow = async (req, res) => {
           const description = `Sell\nCustomer: ${customerName}\nInvoice No.: ${sale.invoiceNo}\nPay reference no.: ${pay.paymentRefNo}\nAdded By: ${addedByName}`;
 
           pushEntry({
-            date: sale.saleDate,
+            date: pay.paidOn || sale.saleDate,
             description,
             method: pay.method?.name || '',
             details: pay.note || '',
@@ -149,17 +142,19 @@ exports.getCashFlow = async (req, res) => {
       }
     }
 
-    // Purchase payments (debits)
     for (const pur of purchases) {
       for (const pay of pur.payments || []) {
-        if (!account_id || (pay.account && pay.account._id.toString() === account_id)) {
+        const accountMatch = !account_id || (pay.account && pay.account._id?.toString() === account_id);
+    
+        if (accountMatch) {
           const addedByName = pur.addedBy?.name || '';
           const supplierName = pur.supplier?.businessName || '';
           const accountName = pay.account?.name || pay.account?.accountNumber || 'N/A';
+    
           const description = `Purchase\nSupplier: ${supplierName}\nRef: ${pur.referenceNo}\nPay reference no.: ${pay.paymentRefNo}\nAdded By: ${addedByName}`;
-
+    
           pushEntry({
-            date: pur.purchaseDate || pur.transaction_date,
+            date: pay.paidOn || pur.purchaseDate,
             description,
             method: pay.method?.name || '',
             details: pay.note || '',
@@ -170,14 +165,14 @@ exports.getCashFlow = async (req, res) => {
         }
       }
     }
+    
 
-    // Expenses payments (debits)
     expenses.forEach(exp => {
       exp.payments?.forEach(pay => {
         if (!account_id || (pay.account && pay.account._id.toString() === account_id)) {
           const accountName = pay.account?.name || pay.account?.accountNumber || 'N/A';
           pushEntry({
-            date: exp.transactionDate,
+            date: pay.paidOn || exp.transactionDate,
             description: `Expense - ${exp.category?.name || 'General'}`,
             method: pay.method?.name || '',
             details: pay.payment_details || '',
@@ -189,10 +184,9 @@ exports.getCashFlow = async (req, res) => {
       });
     });
 
-    // Sort by date ascending
-    entries.sort((a, b) => new Date(a.date) - new Date(b.date));
+    // Sort by date ASC for opening balance calculation
+    entries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    // Calculate opening balance based on first entry if any
     const opening_balance = entries.length > 0
       ? parseFloat(entries[0].balance) - (parseFloat(entries[0].credit || 0) - parseFloat(entries[0].debit || 0))
       : 0;

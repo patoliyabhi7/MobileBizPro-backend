@@ -5,6 +5,11 @@ const generateAutoId = require('../../utils/generateAutoId');
 
 exports.updateExpense = async (req, res) => {
   try {
+    ['expenseFor', 'expenseForContact'].forEach(field => {
+      if (req.body[field] === '') {
+        delete req.body[field];
+      }
+    });
     // Step 1: Fetch the old expense
     const oldExpense = await Expense.findById(req.params.id);
     if (!oldExpense || oldExpense.isDeleted) {
