@@ -97,7 +97,7 @@ exports.getBalanceSheet = async (req, res) => {
       return {
         accountId: acc._id,
         name: acc.name,
-        balance: balance.toFixed(2),
+        balance: balance.toFixed(2) + acc.initialBalance,
       };
     });
 
