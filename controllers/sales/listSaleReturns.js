@@ -1,8 +1,16 @@
+const mongoose = require('mongoose');
 const Sale = require('../../models/saleModel');
 
 exports.listSaleReturns = async (req, res) => {
     try {
-      const saleReturns = await Sale.find({ isDeleted: false, status: 'return' })
+      const rawLocationId = req.params.locationId;
+
+    if (!mongoose.Types.ObjectId.isValid(rawLocationId)) {
+      return res.status(400).json({ error: 'Invalid Location ID format' });
+    }
+
+    const locationId = new mongoose.Types.ObjectId(rawLocationId);
+      const saleReturns = await Sale.find({ isDeleted: false, status: 'return', businessLocation: locationId })
         .populate('customer')
         .populate('businessLocation')
         .populate('addedBy', 'name _id')
