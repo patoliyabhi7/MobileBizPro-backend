@@ -2,6 +2,9 @@ const Account = require('../../models/accountModel');
 
 exports.updateAccount = async (req, res) => {
   try {
+    if(req.body.balance) delete req.body.balance;
+    if(req.body.initialBalance) delete req.body.initialBalance;
+
     const account = await Account.findByIdAndUpdate(
       req.params.id,
       req.body,
