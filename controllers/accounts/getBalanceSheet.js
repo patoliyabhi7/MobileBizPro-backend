@@ -9,61 +9,206 @@ exports.getBalanceSheet = async (req, res) => {
   try {
     let { location_id, date } = req.query;
 
-    // Normalize filters
     if (!location_id || location_id === 'All locations') location_id = undefined;
     if (!date || date === 'All') date = undefined;
 
-    // Base filter for purchases, sales, expenses (exclude deleted)
-    const baseFilter = { isDeleted: false };
+    const matchLocation = location_id ? { businessLocation: new mongoose.Types.ObjectId(location_id) } : {};
 
-    if (location_id) baseFilter.businessLocation = new mongoose.Types.ObjectId(location_id);
-    if (date) baseFilter.createdAt = { $lte: new Date(date) };
+    // Helper to get end of the day
+    const getEndOfDay = (dateStr) => {
+      const d = new Date(dateStr);
+      d.setHours(23, 59, 59, 999);
+      return d;
+    };
+    const endOfDate = date ? getEndOfDay(date) : undefined;
 
-    // For purchases, the date field is purchaseDate
-    const purchaseFilter = { isDeleted: false };
-    if (location_id) purchaseFilter.businessLocation = new mongoose.Types.ObjectId(location_id);
-    if (date) purchaseFilter.purchaseDate = { $lte: new Date(date) };
+    const saleQuery = { isDeleted: false, ...matchLocation };
+    const purchaseQuery = { isDeleted: false, ...matchLocation };
+    const expenseQuery = { isDeleted: false, ...matchLocation };
 
-    // For sales, saleDate
-    const saleFilter = { isDeleted: false };
-    if (location_id) saleFilter.businessLocation = new mongoose.Types.ObjectId(location_id);
-    if (date) saleFilter.saleDate = { $lte: new Date(date) };
+    if (endOfDate) saleQuery.saleDate = { $lte: endOfDate };
+    if (endOfDate) purchaseQuery.purchaseDate = { $lte: endOfDate };
+    if (endOfDate) expenseQuery.transactionDate = { $lte: endOfDate };
 
-    // For expenses, transactionDate
-    const expenseFilter = { isDeleted: false };
-    if (location_id) expenseFilter.businessLocation = new mongoose.Types.ObjectId(location_id);
-    if (date) expenseFilter.transactionDate = { $lte: new Date(date) };
-
-    // Fetch data concurrently
-    const [sales, purchases, accounts, expenses] = await Promise.all([
-      Sale.find(saleFilter).lean(),
-      Purchase.find(purchaseFilter).lean(),
-      Account.find({ is_active: true }).lean(),
-      Expense.find(expenseFilter).lean(),
+    const [sales, purchases, expenses, accounts] = await Promise.all([
+      Sale.find(saleQuery).lean(),
+      Purchase.find(purchaseQuery).lean(),
+      Expense.find(expenseQuery).lean(),
+      Account.find({ is_active: true, ...matchLocation }).lean(),
     ]);
 
-    // Sum customer dues from sales.paymentDue
-    const customerDue = sales.reduce((sum, s) => sum + (Number(s.paymentDue) || 0), 0);
+    let customerDue = 0;
+    for (const sale of sales) {
+      customerDue += Number(sale.paymentDue || 0);
+    }
 
-    // Sum supplier dues from purchases.paymentDue
-    const supplierDue = purchases.reduce((sum, p) => sum + (Number(p.paymentDue) || 0), 0);
+    let supplierDue = 0;
+    for (const purchase of purchases) {
+      supplierDue += Number(purchase.paymentDue || 0);
+    }
 
-    // Sum expenses totalAmount or total
-    const totalExpense = expenses.reduce((sum, e) => sum + (Number(e.totalAmount || e.total || 0)), 0);
+    const totalExpense = expenses.reduce((sum, e) => sum + (Number(e.totalAmount || 0)), 0);
 
-    // Sum account balances
+    let accountBalanceMap = {};
+
+    // Sales payments (credit)
+    for (const sale of sales) {
+      if (!Array.isArray(sale.payments)) continue;
+      for (const p of sale.payments) {
+        if (!p.account) continue;
+        const accId = p.account.toString();
+        const paidOnDate = new Date(p.paidOn);
+        if (endOfDate && paidOnDate > endOfDate) continue;
+        if (!accountBalanceMap[accId]) accountBalanceMap[accId] = 0;
+        accountBalanceMap[accId] += Number(p.amount || 0);
+      }
+    }
+
+    // Purchase payments (debit)
+    for (const purchase of purchases) {
+      if (!Array.isArray(purchase.payments)) continue;
+      for (const p of purchase.payments) {
+        if (!p.account) continue;
+        const accId = p.account.toString();
+        const paidOnDate = new Date(p.paidOn);
+        if (endOfDate && paidOnDate > endOfDate) continue;
+        if (!accountBalanceMap[accId]) accountBalanceMap[accId] = 0;
+        accountBalanceMap[accId] -= Number(p.amount || 0);
+      }
+    }
+
+    // Expense payments (debit)
+    for (const expense of expenses) {
+      if (!Array.isArray(expense.payments)) continue;
+      for (const p of expense.payments) {
+        if (!p.account) continue;
+        const accId = p.account.toString();
+        const paidOnDate = new Date(p.paidOn);
+        if (endOfDate && paidOnDate > endOfDate) continue;
+        if (!accountBalanceMap[accId]) accountBalanceMap[accId] = 0;
+        accountBalanceMap[accId] -= Number(p.amount || 0);
+      }
+    }
+
     let totalAccountBalance = 0;
-    const accountBalances = [];
-    accounts.forEach(acc => {
-      const bal = Number(acc.balance) || 0;
-      totalAccountBalance += bal;
-      accountBalances.push({ name: acc.name, balance: bal.toFixed(2) });
+    const accountBalances = accounts.map(acc => {
+      const balance = accountBalanceMap[acc._id.toString()] || 0;
+      totalAccountBalance += balance;
+      return {
+        accountId: acc._id,
+        name: acc.name,
+        balance: balance.toFixed(2),
+      };
     });
 
-    // Calculate closing stock value
-    const stockMatch = { status: 1 };
-    if (location_id) stockMatch.businessLocation = new mongoose.Types.ObjectId(location_id);
+    const stockMatch = { status: 1, ...matchLocation };
+    const closingStockAgg = await Stock.aggregate([
+      { $match: stockMatch },
+      { $group: { _id: null, totalAmount: { $sum: "$amount" } } }
+    ]);
 
+    const closingStockValue = closingStockAgg.length ? closingStockAgg[0].totalAmount : 0;
+
+    const totalAsset = totalAccountBalance + closingStockValue + customerDue;
+    const totalLiability = supplierDue + totalExpense;
+
+    return res.status(200).json({
+      customer_due: customerDue.toFixed(2),
+      supplier_due: supplierDue.toFixed(2),
+      account_balance: totalAccountBalance.toFixed(2),
+      account_balances: accountBalances,
+      total_expense: totalExpense.toFixed(2),
+      closing_stock: closingStockValue.toFixed(2),
+      date: date || 'Till today',
+      location_id: location_id || 'All locations',
+      total_liability: totalLiability.toFixed(2),
+      total_asset: totalAsset.toFixed(2),
+    });
+
+  } catch (err) {
+    console.error("Balance sheet error:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+};
+
+
+
+/*
+exports.getBalanceSheet = async (req, res) => {
+  try {
+    let { location_id, date } = req.query;
+
+    // Normalize filters
+    if (!location_id || location_id === 'All locations') location_id = undefined;
+    if (!date || date === 'All') date = undefined;
+    const dateFilter = date ? { $lte: new Date(date) } : {};
+
+    const matchLocation = location_id ? { businessLocation: new mongoose.Types.ObjectId(location_id) } : {};
+
+    // Fetch relevant documents
+    const [sales, purchases, expenses, accounts] = await Promise.all([
+      Sale.find({ isDeleted: false, ...matchLocation, saleDate: dateFilter }).lean(),
+      Purchase.find({ isDeleted: false, ...matchLocation, purchaseDate: dateFilter }).lean(),
+      Expense.find({ isDeleted: false, ...matchLocation, transactionDate: dateFilter }).lean(),
+      Account.find({ is_active: true }).lean(),
+    ]);
+
+    // Calculate Customer Dues
+    let customerDue = 0;
+    for (const sale of sales) {
+      const totalAmount = Number(sale.final_total || 0);
+      const paid = Array.isArray(sale.payments)
+        ? sale.payments.reduce((sum, p) => {
+            if (date && new Date(p.paidOn) > new Date(date)) return sum;
+            return sum + (p.amount || 0);
+          }, 0)
+        : 0;
+      customerDue += (totalAmount - paid);
+    }
+
+    // Calculate Supplier Dues
+    let supplierDue = 0;
+    for (const purchase of purchases) {
+      const totalAmount = Number(purchase.final_total || 0);
+      const paid = Array.isArray(purchase.payments)
+        ? purchase.payments.reduce((sum, p) => {
+            if (date && new Date(p.paidOn) > new Date(date)) return sum;
+            return sum + (p.amount || 0);
+          }, 0)
+        : 0;
+      supplierDue += (totalAmount - paid);
+    }
+
+    // Calculate Total Expenses
+    const totalExpense = expenses.reduce((sum, e) => sum + (Number(e.totalAmount || e.total || 0)), 0);
+
+    // Account Balances (credit - debit based on payments across all models)
+    let accountBalanceMap = {};
+    const modelsWithPayments = [...sales, ...purchases, ...expenses];
+
+    for (const item of modelsWithPayments) {
+      if (!Array.isArray(item.payments)) continue;
+      for (const p of item.payments) {
+        if (!p.account) continue;
+        const accId = p.account.toString();
+        const paidOnDate = new Date(p.paidOn || item.date || item.saleDate || item.purchaseDate);
+        if (date && paidOnDate > new Date(date)) continue;
+
+        const isCredit = item.total || item.final_total === item.final_total; // crude way to separate sale (credit) vs others (debit)
+        if (!accountBalanceMap[accId]) accountBalanceMap[accId] = 0;
+        accountBalanceMap[accId] += isCredit ? Number(p.amount || 0) : -Number(p.amount || 0);
+      }
+    }
+
+    let totalAccountBalance = 0;
+    const accountBalances = accounts.map(acc => {
+      const balance = accountBalanceMap[acc._id.toString()] || 0;
+      totalAccountBalance += balance;
+      return { name: acc.name, balance: balance.toFixed(2) };
+    });
+
+    // Closing Stock Calculation
+    const stockMatch = { status: 1, ...matchLocation };
     const stocksGrouped = await Stock.aggregate([
       { $match: stockMatch },
       {
@@ -89,19 +234,15 @@ exports.getBalanceSheet = async (req, res) => {
       { $unwind: '$matchedProduct' },
       {
         $group: {
-          _id: '$purchaseRef',
-          stockCount: { $sum: 1 },
-          totalUnitCost: { $sum: '$matchedProduct.unitCost' },
+          _id: null,
+          totalStockValue: { $sum: '$matchedProduct.unitCost' },
         },
       },
     ]);
 
-    let closingStockValue = 0;
-    for (const item of stocksGrouped) {
-      closingStockValue += item.totalUnitCost;
-    }
+    const closingStockValue = stocksGrouped[0]?.totalStockValue || 0;
 
-    // Calculate totals
+    // Totals
     const totalLiability = supplierDue;
     const totalAsset = totalAccountBalance + customerDue + closingStockValue;
 
@@ -117,9 +258,9 @@ exports.getBalanceSheet = async (req, res) => {
       total_liability: totalLiability.toFixed(2),
       total_asset: totalAsset.toFixed(2),
     });
-
   } catch (error) {
     console.error('Error in getBalanceSheet:', error);
     return res.status(500).json({ error: error.message });
   }
 };
+*/
