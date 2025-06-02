@@ -133,12 +133,33 @@ exports.getBalanceSheet = async (req, res) => {
     });
 
     // --- Closing Stock ---
-    const stockMatch = { status: 1, ...matchLocation };
-    const closingStockAgg = await Stock.aggregate([
-      { $match: stockMatch },
-      { $group: { _id: null, totalAmount: { $sum: "$amount" } } }
-    ]);
-    const closingStockValue = closingStockAgg.length ? closingStockAgg[0].totalAmount : 0;
+    const stockMatch = {
+      status: 1,
+      ...matchLocation,
+    };
+    
+    if (endOfDate) {
+      stockMatch.createdAt = { $lte: endOfDate };
+    }
+    
+    const closingStockDocs = await Stock.find(stockMatch)
+      .populate({
+        path: 'purchaseRef',
+        select: 'products',
+      })
+      .lean();
+    
+    const closingStockValue = closingStockDocs.reduce((total, stockItem) => {
+      const purchaseProducts = stockItem.purchaseRef?.products || [];
+    
+      // Find the matching product in purchaseRef.products array
+      const matchedProduct = purchaseProducts.find(
+        (p) => p.product?.toString() === stockItem.product?.toString()
+      );
+    
+      const unitCost = matchedProduct?.unitCost || 0;
+      return total + unitCost;
+    }, 0);    
 
     const totalAsset = totalAccountBalance + closingStockValue + customerDue;
     const totalLiability = supplierDue + totalExpense;

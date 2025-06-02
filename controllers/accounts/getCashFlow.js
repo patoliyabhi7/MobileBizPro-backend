@@ -185,11 +185,13 @@ exports.getCashFlow = async (req, res) => {
     });
 
     // Sort by date ASC for opening balance calculation
-    entries.sort((a, b) => new Date(b.date) - new Date(a.date));
+    entries.sort((a, b) => new Date(a.date) - new Date(b.date));
 
     const opening_balance = entries.length > 0
       ? parseFloat(entries[0].balance) - (parseFloat(entries[0].credit || 0) - parseFloat(entries[0].debit || 0))
       : 0;
+
+    entries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     res.status(200).json({
       account_id: account_id || 'All',

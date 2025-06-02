@@ -2,23 +2,23 @@ const Stock = require('../models/stockModel');
 
 const revertStock = async (products = []) => {
   for (const item of products) {
-    // Build query by IMEI/serial or product fallback
-    const query = { $or: [] };
+    let query = {};
 
-    if (item.stockId) {
-      query._id = item.stockId;
-      delete query.$or;
+    if (item.imeiNo) {
+      query.imeiNo = item.imeiNo;
     } else {
-      if (item.imeiNo) query.$or.push({ imeiNo: item.imeiNo });
-      if (item.serialNo) query.$or.push({ serialNo: item.serialNo });
-      if (query.$or.length === 0 && item.product) {
-        query.$or.push({ product: item.product });
-      }
+      // fallback if IMEI is missing
+      query.product = item.product;
+      if (item.color) query.color = item.color;
+      if (item.storage) query.storage = item.storage;
     }
 
+    console.log("♻️ revertStock query:", query);
+
     const stockItem = await Stock.findOne(query);
+
     if (stockItem) {
-      stockItem.status = 1; // back to available
+      stockItem.status = 1; // mark as available
       await stockItem.save();
     }
   }

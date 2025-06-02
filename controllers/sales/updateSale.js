@@ -7,6 +7,8 @@ const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 const { revertAccountBalances } = require('../../utils/revertAccountBalances');
 const revertStock = require('../../utils/revertStock');
 const consumeStock = require('../../utils/consumeStock');
+const Stock = require('../../models/stockModel');
+const Purchase = require('../../models/purchaseModel');
 
 exports.updateSale = async (req, res) => {
   try {
@@ -95,10 +97,26 @@ exports.updateSale = async (req, res) => {
     // Consume stock again
     if (Array.isArray(req.body.products) && req.body.products.length > 0) {
       await consumeStock(req.body.products);
+
+      // Fetch purchaseRefs using imeiNo
+      const imeiNos = req.body.products.map(p => p.imeiNo).filter(Boolean);
+
+      if (imeiNos.length > 0) {
+        const stocks = await Stock.find({ imeiNo: { $in: imeiNos } }).select('purchaseRef');
+        const purchaseIds = stocks.map(s => s.purchaseRef).filter(Boolean);
+
+        if (purchaseIds.length > 0) {
+          await Purchase.updateMany(
+            { _id: { $in: purchaseIds } },
+            { $set: { isSold: true } }
+          );
+        }
+      }
     }
 
+
     // Update account balances again
-    if (newPayments.length > 0) {
+    if (updatedSale.payments.length > 0) {
       await updateAccountBalances(newPayments, 'sale');
     }
 

@@ -62,7 +62,10 @@ exports.updatePurchase = async (req, res) => {
     req.body.addedBy = req.user.userId;
 
     // 👇 Fully revert stock and account balances
-    await revertStock(oldPurchase.products);
+    if (!oldPurchase.isSold && oldPurchase.products?.length > 0) {
+      await revertStock(oldPurchase.products);
+    }
+
     await revertAccountBalances(oldPurchase.payments || [], 'purchase');
 
     // 👇 Update purchase
@@ -82,14 +85,14 @@ exports.updatePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found after update' });
     }
 
-    // 👇 Recreate stock
-    if (req.body.products?.length > 0) {
+    // Recreate stock
+    if (!oldPurchase.isSold && req.body.products?.length > 0) {
       await createStock(req.body.products, updatedPurchase._id, updatedPurchase.businessLocation);
     }
-
-    // 👇 Reapply account balances
-    if (newPayments.length > 0) {
-      await updateAccountBalances(newPayments, 'purchase');
+    
+    // Reapply all active payments to accounts
+    if (updatedPurchase.payments?.length > 0) {
+      await updateAccountBalances(updatedPurchase.payments, 'purchase');
     }
 
     res.status(200).json({ message: 'Purchase updated successfully', updatedPurchase });

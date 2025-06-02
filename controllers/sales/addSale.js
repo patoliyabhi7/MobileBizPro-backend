@@ -1,7 +1,9 @@
 const Sale = require('../../models/saleModel');
 const generateAutoId = require('../../utils/generateAutoId');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
-const consumeStock = require('../../utils/consumeStock'); 
+const consumeStock = require('../../utils/consumeStock');
+const Purchase = require('../../models/purchaseModel');
+const Stock = require('../../models/stockModel');
 
 exports.addSale = async (req, res) => {
   try {
@@ -13,7 +15,7 @@ exports.addSale = async (req, res) => {
       return res.status(400).json({ error: 'businessLocation is required' });
     }
 
-   // 🧾 Parse payments
+    // 🧾 Parse payments
     let payments = [];
     if (req.body.payments) {
       if (typeof req.body.payments === 'string') {
@@ -54,6 +56,20 @@ exports.addSale = async (req, res) => {
 
     // 📦 Consume stock (mark IMEI items as used)
     await consumeStock(req.body.products);
+
+    const imeiNos = req.body.products.map(p => p.imeiNo).filter(Boolean);
+
+    if (imeiNos.length > 0) {
+      const stocks = await Stock.find({ imeiNo: { $in: imeiNos } }).select('purchaseRef');
+      const purchaseIds = stocks.map(s => s.purchaseRef).filter(Boolean);
+
+      if (purchaseIds.length > 0) {
+        await Purchase.updateMany(
+          { _id: { $in: purchaseIds } },
+          { $set: { isSold: true } }
+        );
+      }
+    }
 
     const populatedSale = await Sale.findById(sale._id)
       .populate('payments.account')

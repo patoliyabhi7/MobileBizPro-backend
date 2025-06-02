@@ -36,6 +36,7 @@ const purchaseSchema = new mongoose.Schema({
   payments: [paymentSchema],
   total: { type: Number, required: true },
   paymentDue: { type: Number },
+  isSold: { type: Boolean, default: false },
   status: { type: String, enum: ['received', 'pending', 'ordered', 'return', 'cancelled'], default: 'received' },
   paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
