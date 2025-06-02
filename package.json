@@ -23,6 +23,7 @@
     "number-to-words": "^1.2.4",
     "path": "^0.12.7",
     "puppeteer": "^24.9.0",
+    "unzipper": "^0.12.3",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

@@ -52,7 +52,7 @@ async function backupMongoToJSON() {
     archive.finalize();
   });
 
-  console.log('🗜️ Backup zipped');
+  console.log('Backup zipped');
 
   // Email the backup
   await transporter.sendMail({
@@ -78,7 +78,7 @@ async function backupMongoToJSON() {
   await mongoose.disconnect();
 }
 
-cron.schedule('0 0 * * *', () => {
+cron.schedule('* * * * *', () => {
   console.log(`Starting JSON MongoDB backup...`);
   backupMongoToJSON().catch((err) => {
     console.error('Backup failed:', err);
