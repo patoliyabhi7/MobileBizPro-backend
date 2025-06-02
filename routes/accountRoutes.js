@@ -15,10 +15,14 @@ const { getAccountBook } = require('../controllers/accounts/getAccountBook');
 const { getBalanceSheet } = require('../controllers/accounts/getBalanceSheet');
 const { getCashFlow } = require('../controllers/accounts/getCashFlow');
 const { getPaymentsAccountReport } = require('../controllers/accounts/getPaymentsAccountReport');
+const { getAllActiveAccountsByLocation } = require('../controllers/accounts/getAllActiveAccountsByLocation');
+const { getAllClosedAccountsByLocation } = require('../controllers/accounts/getAllClosedAccountsByLocation');
 
 router.post('/', protect, authorizeRoles('admin'), addAccount);
 router.get('/closed', protect, authorizeRoles('admin'), getAllClosedAccount);
 router.get('/active', protect, authorizeRoles('admin'), getAllActiveAccount);
+router.get('/closed/:id', protect, authorizeRoles('admin'), getAllClosedAccountsByLocation);
+router.get('/active/:id', protect, authorizeRoles('admin'), getAllActiveAccountsByLocation);
 router.post('/transfer', protect, authorizeRoles('admin'), fundTransfer);
 router.post('/deposit', protect, authorizeRoles('admin'), depositToAccount);
 router.get('/balance-sheet', protect, authorizeRoles('admin'), getBalanceSheet);
