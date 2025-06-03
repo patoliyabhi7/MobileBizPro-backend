@@ -78,7 +78,7 @@ async function backupMongoToJSON() {
   await mongoose.disconnect();
 }
 
-cron.schedule('* * * * *', () => {
+cron.schedule('0 0 * * *', () => {
   console.log(`Starting JSON MongoDB backup...`);
   backupMongoToJSON().catch((err) => {
     console.error('Backup failed:', err);

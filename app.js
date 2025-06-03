@@ -11,10 +11,9 @@ require('./cron/backupAndEmail');
 
 // Middlewares
 app.use(cors({
-    origin: '*',
+    origin: 'https://portal.mobixmobile.in',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    credentials: true,
-    optionsSuccessStatus: 200
+    credentials: true
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
