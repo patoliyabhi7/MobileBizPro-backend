@@ -32,15 +32,15 @@ async function unzipBackup(zipFile, extractTo) {
     .pipe(unzipper.Extract({ path: extractTo }))
     .promise();
 
-  console.log('✅ Unzipped:', path.basename(zipFile));
+  console.log('Unzipped:', path.basename(zipFile));
 }
 
 (async () => {
   try {
-    console.log('🔍 Finding latest backup...');
+    console.log('Finding latest backup...');
     const latestZip = await findLatestZip(backupRoot);
 
-    console.log('🔓 Unzipping:', latestZip);
+    console.log('Unzipping:', latestZip);
     await unzipBackup(latestZip, extractDir);
 
     await client.connect();
@@ -48,7 +48,7 @@ async function unzipBackup(zipFile, extractTo) {
 
     const files = fs.readdirSync(extractDir).filter(file => file.endsWith('.json'));
     if (!files.length) {
-      console.log('🚫 No JSON files found in extracted folder.');
+      console.log('No JSON files found in extracted folder.');
       return;
     }
 
@@ -58,23 +58,23 @@ async function unzipBackup(zipFile, extractTo) {
       const content = fs.readFileSync(filePath, 'utf-8').trim();
 
       if (!content || content === '[]') {
-        console.log(`📁 Creating empty collection: ${collection}`);
+        console.log(`Creating empty collection: ${collection}`);
         await db.createCollection(collection);
-        console.log(`✅ Created: ${collection}`);
+        console.log(`Created: ${collection}`);
       } else {
         const command = `mongoimport --uri="${mongoUri}" --db=${dbName} --collection=${collection} --file="${filePath}" --jsonArray --drop`;
 
-        console.log(`📦 Importing collection: ${collection}...`);
+        console.log(`Importing collection: ${collection}...`);
         await new Promise((resolve, reject) => {
           exec(command, (error, stdout, stderr) => {
             if (error) {
-              console.error(`❌ Failed to import ${collection}:`, error.message);
+              console.error(`Failed to import ${collection}:`, error.message);
               return reject(error);
             }
             if (stderr) {
-              console.warn(`⚠️ stderr for ${collection}:`, stderr);
+              console.warn(`stderr for ${collection}:`, stderr);
             }
-            console.log(`✅ Imported: ${collection}`);
+            console.log(`Imported: ${collection}`);
             resolve();
           });
         });
