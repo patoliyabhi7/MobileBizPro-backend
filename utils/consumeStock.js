@@ -13,8 +13,6 @@ const consumeStock = async (products = []) => {
       if (item.storage) query.storage = item.storage;
     }
 
-    console.log("🔍 consumeStock query:", query);
-
     const stockItem = await Stock.findOne(query);
 
     if (!stockItem) {

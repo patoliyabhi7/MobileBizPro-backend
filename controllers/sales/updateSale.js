@@ -68,13 +68,15 @@ exports.updateSale = async (req, res) => {
 
     req.body.addedBy = req.user.userId;
 
-    // Revert old account balances and stock
-    if (oldPaymentsClone.length > 0) {
-      await revertAccountBalances(oldPaymentsClone, 'sale');
+    // Revert only unsold old products stock
+    const unsoldOldProducts = oldSale.products?.filter(p => !p.isSold) || [];
+    if (unsoldOldProducts.length > 0) {
+      await revertStock(unsoldOldProducts);
     }
 
-    if (Array.isArray(oldSale.products) && oldSale.products.length > 0) {
-      await revertStock(oldSale.products, businessLocation);
+    // Revert old account balances
+    if (oldPaymentsClone.length > 0) {
+      await revertAccountBalances(oldPaymentsClone, 'sale');
     }
 
     // Update sale
@@ -94,12 +96,13 @@ exports.updateSale = async (req, res) => {
       return res.status(404).json({ message: 'Sale not found after update' });
     }
 
-    // Consume stock again
-    if (Array.isArray(req.body.products) && req.body.products.length > 0) {
-      await consumeStock(req.body.products);
+    // Consume stock only for unsold new products
+    const newUnsoldProducts = req.body.products?.filter(p => !p.isSold) || [];
+    if (newUnsoldProducts.length > 0) {
+      await consumeStock(newUnsoldProducts);
 
       // Fetch purchaseRefs using imeiNo
-      const imeiNos = req.body.products.map(p => p.imeiNo).filter(Boolean);
+      const imeiNos = newUnsoldProducts.map(p => p.imeiNo).filter(Boolean);
 
       if (imeiNos.length > 0) {
         const stocks = await Stock.find({ imeiNo: { $in: imeiNos } }).select('purchaseRef imeiNo');
@@ -113,10 +116,8 @@ exports.updateSale = async (req, res) => {
             { $set: { 'products.$.isSold': true } }
           );
         }
-
       }
     }
-
 
     // Update account balances again
     if (updatedSale.payments.length > 0) {

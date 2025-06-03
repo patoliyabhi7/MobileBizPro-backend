@@ -13,8 +13,6 @@ const revertStock = async (products = []) => {
       if (item.storage) query.storage = item.storage;
     }
 
-    console.log("♻️ revertStock query:", query);
-
     const stockItem = await Stock.findOne(query);
 
     if (stockItem) {
