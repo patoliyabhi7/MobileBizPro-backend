@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const saleProductSchema = new mongoose.Schema({
   product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
   serialNo: String,
-  imeiNo: String,
+  imeiNo: { type: String, unique: true, required: true, sparse: true },
   color: String,
   storage: String,
   quantity: { type: Number, required: true },

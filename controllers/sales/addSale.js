@@ -60,15 +60,18 @@ exports.addSale = async (req, res) => {
     const imeiNos = req.body.products.map(p => p.imeiNo).filter(Boolean);
 
     if (imeiNos.length > 0) {
-      const stocks = await Stock.find({ imeiNo: { $in: imeiNos } }).select('purchaseRef');
-      const purchaseIds = stocks.map(s => s.purchaseRef).filter(Boolean);
+      const stocks = await Stock.find({ imeiNo: { $in: imeiNos } }).select('purchaseRef imeiNo');
 
-      if (purchaseIds.length > 0) {
-        await Purchase.updateMany(
-          { _id: { $in: purchaseIds } },
-          { $set: { isSold: true } }
+      for (const stock of stocks) {
+        const purchaseId = stock.purchaseRef;
+        const imeiNo = stock.imeiNo;
+
+        await Purchase.updateOne(
+          { _id: purchaseId, 'products.imeiNo': imeiNo },
+          { $set: { 'products.$.isSold': true } }
         );
       }
+
     }
 
     const populatedSale = await Sale.findById(sale._id)

@@ -26,6 +26,7 @@ exports.updatePurchase = async (req, res) => {
       req.body.products = products;
     }
 
+
     // 👇 Handle document replacement
     if (req.files?.length > 0) {
       if (oldPurchase.documents?.length > 0) {
@@ -61,9 +62,10 @@ exports.updatePurchase = async (req, res) => {
 
     req.body.addedBy = req.user.userId;
 
-    // 👇 Fully revert stock and account balances
-    if (!oldPurchase.isSold && oldPurchase.products?.length > 0) {
-      await revertStock(oldPurchase.products);
+    // 👇 Revert only unsold products
+    const unsoldOldProducts = oldPurchase.products?.filter(p => !p.isSold) || [];
+    if (unsoldOldProducts.length > 0) {
+      await revertStock(unsoldOldProducts);
     }
 
     await revertAccountBalances(oldPurchase.payments || [], 'purchase');
@@ -85,12 +87,13 @@ exports.updatePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found after update' });
     }
 
-    // Recreate stock
-    if (!oldPurchase.isSold && req.body.products?.length > 0) {
-      await createStock(req.body.products, updatedPurchase._id, updatedPurchase.businessLocation);
+    // 👇 Recreate stock for only unsold new products
+    const newUnsoldProducts = req.body.products?.filter(p => !p.isSold) || [];
+    if (newUnsoldProducts.length > 0) {
+      await createStock(newUnsoldProducts, updatedPurchase._id, updatedPurchase.businessLocation);
     }
-    
-    // Reapply all active payments to accounts
+
+    // 👇 Reapply payments
     if (updatedPurchase.payments?.length > 0) {
       await updateAccountBalances(updatedPurchase.payments, 'purchase');
     }

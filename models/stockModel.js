@@ -2,8 +2,8 @@ const mongoose = require('mongoose');
 
 const stockSchema = new mongoose.Schema({
   product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
-  imeiNo: { type: String, unique: true, sparse: true },
-  serialNo: { type: String, unique: true, sparse: true },
+  imeiNo: { type: String, unique: true, sparse: true, required: true },
+  serialNo: { type: String },
   color: String,
   storage: String,
   purchaseRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Purchase' },

@@ -3,13 +3,14 @@ const mongoose = require('mongoose');
 const purchaseProductSchema = new mongoose.Schema({
   product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
   serialNo: String,
-  imeiNo: String,
+  imeiNo: { type: String, unique: true, required: true, sparse: true },
   color: String,
   storage: String,
   quantity: { type: Number, required: true },
   unitCost: { type: Number, required: true },
   lineTotal: { type: Number, required: true },
   note: String,
+  isSold: { type: Boolean, default: false },
   returnDate: { type: Date }
 });
 
@@ -36,7 +37,6 @@ const purchaseSchema = new mongoose.Schema({
   payments: [paymentSchema],
   total: { type: Number, required: true },
   paymentDue: { type: Number },
-  isSold: { type: Boolean, default: false },
   status: { type: String, enum: ['received', 'pending', 'ordered', 'return', 'cancelled'], default: 'received' },
   paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
