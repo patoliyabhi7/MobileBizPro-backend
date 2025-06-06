@@ -1,14 +1,22 @@
+const mongoose = require('mongoose');
+const { validatePurchaseReturn } = require('../../utils/validateReturn');
+const consumeStock = require('../../utils/consumeStock');
 const Purchase = require('../../models/purchaseModel');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
-const consumeStock = require('../../utils/consumeStock');
 
 exports.addPurchaseReturn = async (req, res) => {
   try {
-    const { purchaseId } = req.params;
-    const { businessLocation } = req.body;
+    const { oldPurchaseId } = req.params;
+    const { businessLocation, productIds = [] } = req.body;
 
-    if (!purchaseId || !businessLocation) {
-      return res.status(400).json({ error: 'purchaseId and businessLocation are required' });
+    if (!mongoose.Types.ObjectId.isValid(oldPurchaseId)) {
+      return res.status(400).json({ error: 'Invalid Purchase ID format' });
+    }
+
+    const purchaseId = new mongoose.Types.ObjectId(oldPurchaseId);
+
+    if (!purchaseId || !businessLocation || productIds.length === 0) {
+      return res.status(400).json({ error: 'purchaseId, businessLocation, and productIds are required' });
     }
 
     const purchase = await Purchase.findById(purchaseId);
@@ -17,47 +25,52 @@ exports.addPurchaseReturn = async (req, res) => {
     }
 
     if (purchase.businessLocation?.toString() !== businessLocation) {
-      return res.status(403).json({ error: 'This purchase does not belong to the given business location' });
+      return res.status(403).json({ error: 'Purchase does not belong to the given business location' });
     }
 
     const returnDate = new Date();
 
-    // ✅ Update product returnDate & purchase status
-    purchase.status = 'return';
-    purchase.products = purchase.products.map(p => ({
-      ...p.toObject(),
-      returnDate
-    }));
+    // Filter and validate only selected products
+    const returnedProducts = purchase.products.filter(p => productIds.includes(p._id.toString()));
+
+    if (returnedProducts.length === 0) {
+      return res.status(400).json({ error: 'No matching products found for return' });
+    }
+
+    await validatePurchaseReturn(returnedProducts); // validate only returned ones
+
+    // Mark selected products as returned
+    purchase.products = purchase.products.map(p => {
+      if (productIds.includes(p._id.toString())) {
+        return { ...p.toObject(), isReturn: true, returnDate };
+      }
+      return p;
+    });
+
     await purchase.save();
 
+    // Return payments based on returned products
+    const totalReturnAmount = returnedProducts.reduce((sum, p) => sum + (p.lineTotal || 0), 0);
     const payments = purchase.payments || [];
-    let returnPayments = [];
-    let totalReturnAmount = 0;
 
-    if (payments.length > 0) {
-      totalReturnAmount = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-      returnPayments = payments.map(p => ({
-        amount: p.amount,
-        paidOn: returnDate,
-        account: p.account,
-        method: p.method,
-        note: 'Purchase Return'
-      }));
+    const returnPayments = payments.map(p => ({
+      amount: p.amount,
+      paidOn: returnDate,
+      account: p.account,
+      method: p.method,
+      note: 'Purchase Return'
+    }));
 
-      await updateAccountBalances(returnPayments, 'purchase_return');
-    }
-
-    if (purchase.products?.length > 0) {
-      await consumeStock(purchase.products);
-    }
+    await updateAccountBalances(returnPayments, 'purchase_return');
+    await consumeStock(returnedProducts);
 
     res.status(200).json({
-      message: 'Purchase return processed successfully',
+      message: 'Selected products returned successfully',
       returnPayments,
       totalReturnAmount
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: err.message || 'Internal server error' });
   }
 };

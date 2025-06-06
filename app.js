@@ -6,7 +6,7 @@ require('dotenv').config();
 
 const app = express();
 connectDB();
-require('./cron/recurringExpenseJob');
+//require('./cron/recurringExpenseJob');
 require('./cron/backupAndEmail');
 
 // Middlewares

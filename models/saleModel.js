@@ -10,6 +10,7 @@ const saleProductSchema = new mongoose.Schema({
   unitPrice: { type: Number, required: true },
   lineTotal: { type: Number, required: true },
   note: String,
+  isReturn: { type: Boolean, default: false },
   returnDate: { type: Date }
 });
 

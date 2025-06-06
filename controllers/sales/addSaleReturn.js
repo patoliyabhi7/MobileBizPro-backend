@@ -1,14 +1,21 @@
-const Sale = require('../../models/saleModel');
+const mongoose = require('mongoose');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
-const revertStock = require('../../utils/revertStock');
+const { markStockReturnedFromSale } = require('../../utils/markStockReturn');
+const Sale = require('../../models/saleModel');
 
 exports.addSaleReturn = async (req, res) => {
   try {
-    const { saleId } = req.params;
-    const { businessLocation } = req.body;
+    const { oldSaleId } = req.params;
+    const { businessLocation, productIds = [] } = req.body;
 
-    if (!saleId || !businessLocation) {
-      return res.status(400).json({ error: 'saleId and businessLocation are required' });
+    if (!mongoose.Types.ObjectId.isValid(oldSaleId)) {
+      return res.status(400).json({ error: 'Invalid Sale ID format' });
+    }
+
+    const saleId = new mongoose.Types.ObjectId(oldSaleId);
+
+    if (!saleId || !businessLocation || productIds.length === 0) {
+      return res.status(400).json({ error: 'saleId, businessLocation, and productIds are required' });
     }
 
     const sale = await Sale.findById(saleId);
@@ -17,45 +24,50 @@ exports.addSaleReturn = async (req, res) => {
     }
 
     if (sale.businessLocation?.toString() !== businessLocation) {
-      return res.status(403).json({ error: 'Sale does not belong to this business location' });
+      return res.status(403).json({ error: 'Sale does not belong to the given business location' });
     }
 
     const returnDate = new Date();
 
-    sale.status = 'return';
-    sale.products.forEach(prod => {
-      prod.returnDate = returnDate;
+    const returnedProducts = sale.products.filter(p => productIds.includes(p._id.toString()));
+
+    if (returnedProducts.length === 0) {
+      return res.status(400).json({ error: 'No matching products found for return' });
+    }
+
+    // Update only returned products
+    sale.products = sale.products.map(p => {
+      if (productIds.includes(p._id.toString())) {
+        return { ...p.toObject(), isReturn: true, returnDate };
+      }
+      return p;
     });
+
     await sale.save();
 
+    // Payment refund for only selected returned products
+    const totalReturnAmount = returnedProducts.reduce((sum, p) => sum + (p.lineTotal || 0), 0);
     const payments = sale.payments || [];
-    let returnPayments = [];
-    let totalReturnAmount = 0;
 
-    if (payments.length > 0) {
-      totalReturnAmount = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-      returnPayments = payments.map(p => ({
-        amount: p.amount,
-        paidOn: returnDate,
-        account: p.account,
-        method: p.method,
-        note: 'Sale Return'
-      }));
+    const returnPayments = payments.map(p => ({
+      amount: p.amount,
+      paidOn: returnDate,
+      account: p.account,
+      method: p.method,
+      note: 'Sale Return'
+    }));
 
-      await updateAccountBalances(returnPayments, 'sale_return');
-    }
-
-    if (sale.products?.length > 0) {
-      await revertStock(sale.products, businessLocation);
-    }
+    await updateAccountBalances(returnPayments, 'sale_return');
+    await markStockReturnedFromSale(returnedProducts, businessLocation);
 
     res.status(200).json({
-      message: 'Sale return processed successfully',
+      message: 'Selected products returned successfully',
       returnPayments,
       totalReturnAmount
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: err.message || 'Internal server error' });
   }
 };
+

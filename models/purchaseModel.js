@@ -11,6 +11,7 @@ const purchaseProductSchema = new mongoose.Schema({
   lineTotal: { type: Number, required: true },
   note: String,
   isSold: { type: Boolean, default: false },
+  isReturn: { type: Boolean, default: false },
   returnDate: { type: Date }
 });
 
