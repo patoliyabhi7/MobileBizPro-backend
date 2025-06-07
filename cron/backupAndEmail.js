@@ -6,7 +6,6 @@ const archiver = require('archiver');
 const nodemailer = require('nodemailer');
 
 // Setup
-const mongoUri = process.env.MONGO_URI;
 const sendToEmail = process.env.BACKUP_EMAIL;
 const backupDir = path.join(__dirname, 'backups');
 
@@ -24,9 +23,6 @@ async function backupMongoToJSON() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backupPath = path.join(backupDir, `backup-${timestamp}`);
   fs.mkdirSync(backupPath, { recursive: true });
-
-  await mongoose.connect(mongoUri);
-  console.log(`[${new Date().toLocaleString()}] Connected to MongoDB`);
 
   const collections = await mongoose.connection.db.listCollections().toArray();
 
@@ -74,11 +70,9 @@ async function backupMongoToJSON() {
   fs.rmSync(backupPath, { recursive: true, force: true });
   fs.unlinkSync(zipPath);
   console.log('Temporary files cleaned up');
-
-  await mongoose.disconnect();
 }
 
-cron.schedule('0 0 * * *', () => {
+cron.schedule('* * * * *', () => {
   console.log(`Starting JSON MongoDB backup...`);
   backupMongoToJSON().catch((err) => {
     console.error('Backup failed:', err);
