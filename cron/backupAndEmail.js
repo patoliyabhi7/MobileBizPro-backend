@@ -52,7 +52,7 @@ async function backupMongoToJSON() {
 
   // Email the backup
   await transporter.sendMail({
-    from: '"DB Backup" <yakshbhesaniya@gmail.com>',
+    from: `"DB Backup" <${process.env.EMAIL_USER}>`,
     to: sendToEmail,
     subject: `DB Backup of Your Store - ${timestamp}`,
     text: `Backup created at ${timestamp}`,
@@ -72,7 +72,7 @@ async function backupMongoToJSON() {
   console.log('Temporary files cleaned up');
 }
 
-cron.schedule('* * * * *', () => {
+cron.schedule('0 0 * * *', () => {
   console.log(`Starting JSON MongoDB backup...`);
   backupMongoToJSON().catch((err) => {
     console.error('Backup failed:', err);
