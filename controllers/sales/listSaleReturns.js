@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const Sale = require('../../models/saleModel');
+const SaleReturn = require('../../models/saleReturnModel');
 
 exports.listSaleReturns = async (req, res) => {
   try {
@@ -11,25 +11,16 @@ exports.listSaleReturns = async (req, res) => {
 
     const locationId = new mongoose.Types.ObjectId(rawLocationId);
 
-    const saleReturns = await Sale.find({
-      isDeleted: false,
-      status: 'return',
-      businessLocation: locationId
-    })
-      .populate('customer')
-      .populate('businessLocation')
+    const saleReturns = await SaleReturn.find({ businessLocation: locationId })
+      .populate('originalSale', 'invoiceNo customer')
+      .populate('businessLocation', 'name')
       .populate('addedBy', 'name _id')
-      .populate('products.product')
-      .populate('payments.account')
-      .populate('payments.method')
-      .lean(); // ← enable object modification
+      .populate('returnedProducts.product', 'productName')
+      .populate('returnPayments.account', 'name')
+      .populate('returnPayments.method', 'name')
+      .lean();
 
-    const enriched = saleReturns.map(entry => ({
-      ...entry,
-      returnDate: entry.products?.[0]?.returnDate || null
-    }));
-
-    res.status(200).json(enriched);
+    res.status(200).json(saleReturns);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

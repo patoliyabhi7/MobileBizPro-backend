@@ -25,18 +25,45 @@ exports.updatePurchase = async (req, res) => {
       }
     }
 
-    // 👇 Prevent sold product modification
+    // 👇 Get sold and returned products from oldPurchase
     const soldProducts = oldPurchase.products?.filter(p => p.isSold) || [];
+    const returnedProducts = oldPurchase.products?.filter(p => p.isReturn) || [];
+
+    // 👇 Prevent modifying/removing returned products
+    const returnedImeis = returnedProducts.map(p => p.imeiNo);
+    const updatedImeis = updatedProducts.map(p => p.imeiNo);
+
+    for (const returned of returnedProducts) {
+      if (!updatedImeis.includes(returned.imeiNo)) {
+        return res.status(400).json({ error: `Cannot remove returned product with IMEI: ${returned.imeiNo}` });
+      }
+    }
+
+    const triedToModifyReturned = updatedProducts.some(p => {
+      return returnedImeis.includes(p.imeiNo) &&
+             !returnedProducts.some(rp =>
+               rp.imeiNo === p.imeiNo &&
+               rp.product.toString() === p.product &&
+               rp.color === p.color &&
+               rp.storage === p.storage &&
+               rp.lineTotal === p.lineTotal
+             );
+    });
+
+    if (triedToModifyReturned) {
+      return res.status(400).json({ error: 'Cannot modify details of returned products' });
+    }
+
+    // 👇 Prevent sold product modification
     for (const sold of soldProducts) {
       if (!updatedProducts.some(p => p.imeiNo === sold.imeiNo)) {
         return res.status(400).json({ error: `Cannot remove or modify sold product with IMEI: ${sold.imeiNo}` });
       }
     }
 
-    // 👇 Revert stock of removed unsold products
-    const updatedImeis = updatedProducts.map(p => p.imeiNo);
+    // 👇 Revert stock of removed unsold products (excluding returned and sold)
     const removedUnsoldProducts = oldPurchase.products?.filter(
-      p => !p.isSold && !updatedImeis.includes(p.imeiNo)
+      p => !p.isSold && !p.isReturn && !updatedImeis.includes(p.imeiNo)
     ) || [];
 
     if (removedUnsoldProducts.length > 0) {
@@ -46,7 +73,11 @@ exports.updatePurchase = async (req, res) => {
     // 👇 Create list of final merged products
     const finalProducts = [
       ...soldProducts,
-      ...updatedProducts.filter(p => !soldProducts.some(sp => sp.imeiNo === p.imeiNo))
+      ...returnedProducts,
+      ...updatedProducts.filter(p =>
+        !soldProducts.some(sp => sp.imeiNo === p.imeiNo) &&
+        !returnedProducts.some(rp => rp.imeiNo === p.imeiNo)
+      )
     ];
 
     req.body.products = finalProducts;
@@ -106,7 +137,7 @@ exports.updatePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found after update' });
     }
 
-    // 👇 Create stock only for newly added unsold products
+    // 👇 Create stock only for newly added unsold products (not sold, not returned, not already existing)
     const newlyAddedUnsold = updatedProducts.filter(p => {
       const alreadyExists = oldPurchase.products?.some(op => op.imeiNo === p.imeiNo);
       return !alreadyExists;

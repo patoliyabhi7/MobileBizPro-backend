@@ -4,7 +4,7 @@ const Purchase = require('../../models/purchaseModel');
 exports.getPurchaseDuePayments = async (req, res) => {
   try {
     const locationId = req.params.locationId;
-    
+
     if (!mongoose.Types.ObjectId.isValid(locationId)) {
       return res.status(400).json({ error: 'Invalid Location ID format' });
     }
@@ -13,7 +13,21 @@ exports.getPurchaseDuePayments = async (req, res) => {
       paymentStatus: { $ne: 'paid' },
       paymentDue: { $gt: 0 },
       isDeleted: false,
-      businessLocation: locationId
+      businessLocation: locationId,
+      $expr: {
+        $gt: [
+          {
+            $size: {
+              $filter: {
+                input: '$products',
+                as: 'product',
+                cond: { $eq: ['$$product.isReturn', false] }
+              }
+            }
+          },
+          0
+        ]
+      }
     }).populate('supplier', 'firstName lastName');
 
     const result = duePurchases.map(purchase => ({

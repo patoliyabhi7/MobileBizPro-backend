@@ -2,12 +2,13 @@ const mongoose = require('mongoose');
 const { validatePurchaseReturn } = require('../../utils/validateReturn');
 const consumeStock = require('../../utils/consumeStock');
 const Purchase = require('../../models/purchaseModel');
+const PurchaseReturn = require('../../models/purchaseReturnModel');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 
 exports.addPurchaseReturn = async (req, res) => {
   try {
     const { oldPurchaseId } = req.params;
-    const { businessLocation, productIds = [] } = req.body;
+    const { businessLocation, productIds = [], returnPayments = [] } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(oldPurchaseId)) {
       return res.status(400).json({ error: 'Invalid Purchase ID format' });
@@ -15,8 +16,8 @@ exports.addPurchaseReturn = async (req, res) => {
 
     const purchaseId = new mongoose.Types.ObjectId(oldPurchaseId);
 
-    if (!purchaseId || !businessLocation || productIds.length === 0) {
-      return res.status(400).json({ error: 'purchaseId, businessLocation, and productIds are required' });
+    if (!businessLocation || productIds.length === 0) {
+      return res.status(400).json({ error: 'businessLocation and productIds are required' });
     }
 
     const purchase = await Purchase.findById(purchaseId);
@@ -30,44 +31,50 @@ exports.addPurchaseReturn = async (req, res) => {
 
     const returnDate = new Date();
 
-    // Filter and validate only selected products
     const returnedProducts = purchase.products.filter(p => productIds.includes(p._id.toString()));
-
     if (returnedProducts.length === 0) {
       return res.status(400).json({ error: 'No matching products found for return' });
     }
 
-    await validatePurchaseReturn(returnedProducts); // validate only returned ones
+    await validatePurchaseReturn(returnedProducts);
 
-    // Mark selected products as returned
+    // Update flags only for returned products
     purchase.products = purchase.products.map(p => {
       if (productIds.includes(p._id.toString())) {
         return { ...p.toObject(), isReturn: true, returnDate };
       }
       return p;
     });
-
     await purchase.save();
 
-    // Return payments based on returned products
     const totalReturnAmount = returnedProducts.reduce((sum, p) => sum + (p.lineTotal || 0), 0);
-    const payments = purchase.payments || [];
 
-    const returnPayments = payments.map(p => ({
-      amount: p.amount,
-      paidOn: returnDate,
-      account: p.account,
-      method: p.method,
-      note: 'Purchase Return'
-    }));
-
-    await updateAccountBalances(returnPayments, 'purchase_return');
     await consumeStock(returnedProducts);
 
-    res.status(200).json({
-      message: 'Selected products returned successfully',
+    // Record and update return payments separately
+    await updateAccountBalances(returnPayments, 'purchase_return');
+
+    await PurchaseReturn.create({
+      originalPurchase: purchase._id,
+      businessLocation,
+      returnedProducts: returnedProducts.map(p => ({
+        product: p.product,
+        imeiNo: p.imeiNo,
+        color: p.color,
+        storage: p.storage,
+        lineTotal: p.lineTotal,
+        note: p.note
+      })),
+      totalReturnAmount,
+      returnDate,
       returnPayments,
-      totalReturnAmount
+      addedBy: req.user?._id
+    });
+
+    res.status(200).json({
+      message: 'Products returned successfully',
+      totalReturnAmount,
+      returnPayments
     });
   } catch (err) {
     console.error(err);
