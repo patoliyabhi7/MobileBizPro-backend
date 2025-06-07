@@ -13,9 +13,11 @@ const { updatePurchase } = require('../controllers/purchase/updatePurchase');
 const { addPurchaseReturn } = require('../controllers/purchase/addPurchaseReturn');
 const { getRecentPurchasePrice } = require('../controllers/purchase/getRecentPurchasePrice');
 const { getAllPurchasesByBusinessLocation } = require('../controllers/purchase/getAllPurchasesByBusinessLocation');
+const { getPurchaseDuePayments } = require('../controllers/purchase/getPurchaseDuePayments');
 
 router.get('/', protect, listPurchases);
 router.post('/', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), addPurchase);
+router.get('/due-payments/:locationId', protect, getPurchaseDuePayments);
 router.get('/returns/:locationId', protect, listPurchaseReturns);
 router.post('/returns/:oldPurchaseId', protect, authorizeRoles('admin'), addPurchaseReturn);
 router.get('/location/:locationId', protect, getAllPurchasesByBusinessLocation);
