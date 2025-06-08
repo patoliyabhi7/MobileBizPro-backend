@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Product = require('../../models/productModel');
 const Stock = require('../../models/stockModel');
+const Purchase = require('../../models/purchaseModel');
 
 exports.getPurchasedProducts = async (req, res) => {
   try {
@@ -12,20 +13,46 @@ exports.getPurchasedProducts = async (req, res) => {
 
     const locationId = new mongoose.Types.ObjectId(rawLocationId);
 
-    // Get available (not sold) stock at this location
+    // Get all available stock at this location
     const stocks = await Stock.find({
       businessLocation: locationId,
-      status: 1 // Only in-stock items
+      status: 1
     }).populate({
       path: 'product',
       populate: ['brand', 'category']
-    }).lean();    
+    }).lean();
 
     const result = [];
+
+    // Get unique product IDs from stock
+    const productIds = [...new Set(stocks.map(s => s.product?._id?.toString()).filter(Boolean))];
+
+    // Fetch latest purchase price per product using aggregation
+    const recentPurchases = await Purchase.aggregate([
+      { $match: { 'products.product': { $in: productIds.map(id => new mongoose.Types.ObjectId(id)) } } },
+      { $unwind: '$products' },
+      { $match: { 'products.product': { $in: productIds.map(id => new mongoose.Types.ObjectId(id)) } } },
+      {
+        $sort: { createdAt: -1 }
+      },
+      {
+        $group: {
+          _id: '$products.product',
+          purchasePrice: { $first: '$products.unitCost' }
+        }
+      }
+    ]);
+
+    const priceMap = new Map();
+    recentPurchases.forEach(p => {
+      priceMap.set(p._id.toString(), p.purchasePrice.toString());
+    });
 
     for (const stock of stocks) {
       const product = stock.product;
       if (!product || product.isDeleted) continue;
+
+      const purchasePrice = priceMap.get(product._id.toString()) || '0';
 
       result.push({
         purchase_line_id: stock.purchaseRef || null,
@@ -42,7 +69,7 @@ exports.getPurchasedProducts = async (req, res) => {
         storage: stock.storage || null,
         variation: stock.variation || 'DUMMY',
         variation_id: stock.variation_id || 0,
-        selling_price: stock.purchaseRef?.purchasePrice?.toString() || '0',
+        selling_price: purchasePrice,
         qty_available: 1,
         availabel_to_sell: '1.0000',
         brand_name: product.brand?.name || null,
