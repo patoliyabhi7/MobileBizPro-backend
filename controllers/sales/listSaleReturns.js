@@ -12,16 +12,32 @@ exports.listSaleReturns = async (req, res) => {
     const locationId = new mongoose.Types.ObjectId(rawLocationId);
 
     const saleReturns = await SaleReturn.find({ businessLocation: locationId })
-      .populate('originalSale', 'invoiceNo customer')
+      .populate({
+        path: 'originalSale',
+        select: 'invoiceNo customer',
+        populate: { path: 'customer', select: 'firstName lastName' }
+      })
       .populate('businessLocation', 'name')
-      .populate('addedBy', 'name _id')
+      .populate('addedBy', 'name')
       .populate('returnedProducts.product', 'productName')
       .populate('returnPayments.account', 'name')
       .populate('returnPayments.method', 'name')
       .lean();
 
-    res.status(200).json(saleReturns);
+    const formatted = saleReturns.map(sr => ({
+      date: sr.returnDate,
+      invoiceNo: sr.referenceNo,
+      parentSale: sr.originalSale?.invoiceNo || '—',
+      customerName: sr.originalSale?.customer?.firstName + ' ' + sr.originalSale?.customer?.lastName || '—',
+      location: sr.businessLocation?.name || '—',
+      paymentStatus: sr.paymentStatus || 'due',
+      totalAmount: sr.totalReturnAmount,
+      paymentDue: sr.paymentDue || sr.totalReturnAmount
+    }));
+
+    res.status(200).json(formatted);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+

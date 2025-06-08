@@ -1,5 +1,3 @@
-const mongoose = require('mongoose');
-
 const saleReturnSchema = new mongoose.Schema({
   originalSale: { type: mongoose.Schema.Types.ObjectId, ref: 'Sale', required: true },
   businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
@@ -13,16 +11,16 @@ const saleReturnSchema = new mongoose.Schema({
     note: String,
   }],
   totalReturnAmount: { type: Number, required: true },
-  returnDate: { type: Date, default: Date.now },
+  paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
+  paymentDue: { type: Number, default: 0 },
   returnPayments: [{
-    amount: Number,
-    paidOn: Date,
+    amount: { type: Number, required: true },
+    paidOn: { type: Date, default: Date.now },
     method: { type: mongoose.Schema.Types.ObjectId, ref: 'AccountType' },
-    account: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
     paymentRefNo: String,
+    account: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
     note: String
   }],
+  returnDate: { type: Date, default: Date.now },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
-
-module.exports = mongoose.model('SaleReturn', saleReturnSchema);

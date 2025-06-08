@@ -42,6 +42,8 @@ const purchaseSchema = new mongoose.Schema({
   status: { type: String, enum: ['received', 'pending', 'ordered', 'return', 'cancelled'], default: 'received' },
   paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdFromReturn: { type: Boolean, default: false },
+  saleReturnRef: { type: mongoose.Schema.Types.ObjectId, ref: 'SaleReturn' },
   isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });
 
