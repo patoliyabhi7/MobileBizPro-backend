@@ -5,7 +5,8 @@ const depositSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   note: { type: String },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true }
+  businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
+  dateTime: { type: Date, default: Date.now }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Deposit', depositSchema);
