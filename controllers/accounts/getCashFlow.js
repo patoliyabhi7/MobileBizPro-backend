@@ -3,6 +3,8 @@ const Purchase = require('../../models/purchaseModel');
 const Expense = require('../../models/expenseModel');
 const Deposit = require('../../models/depositModel');
 const FundTransfer = require('../../models/fundTransferModel');
+const SaleReturn = require('../../models/saleReturnModel');
+const PurchaseReturn = require('../../models/purchaseReturnModel');
 
 exports.getCashFlow = async (req, res) => {
   try {
@@ -18,33 +20,17 @@ exports.getCashFlow = async (req, res) => {
       const start = new Date(start_date);
       const end = new Date(new Date(end_date).setHours(23, 59, 59, 999));
       return d >= start && d <= end;
-    };    
+    };
 
-    const depositFilter = {};
-    if (account_id) depositFilter.to_account = account_id;
-
-    const transfersOutFilter = {};
-    if (account_id) transfersOutFilter.from_account = account_id;
-
-    const transfersInFilter = {};
-    if (account_id) transfersInFilter.to_account = account_id;
-
-    const saleFilter = { status: { $ne: 'return' } };
-    if (location_id) saleFilter.businessLocation = location_id;
-
-    const purchaseFilter = { status: { $ne: 'return' } };
-    if (location_id) purchaseFilter.businessLocation = location_id;
-
-    const expenseFilter = {};
-    if (location_id) expenseFilter.businessLocation = location_id;
-
-    const [deposits, transfersOut, transfersIn, sales, purchases, expenses] = await Promise.all([
-      Deposit.find(depositFilter).populate('to_account'),
-      FundTransfer.find(transfersOutFilter).populate('from_account to_account'),
-      FundTransfer.find(transfersInFilter).populate('from_account to_account'),
-      Sale.find(saleFilter).populate('addedBy customer payments.account payments.method'),
-      Purchase.find(purchaseFilter).populate('addedBy supplier payments.account payments.method'),
-      Expense.find(expenseFilter).populate('payments.account payments.method category'),
+    const [deposits, transfersOut, transfersIn, sales, purchases, expenses, saleReturns, purchaseReturns] = await Promise.all([
+      Deposit.find(account_id ? { to_account: account_id } : {}).populate('to_account'),
+      FundTransfer.find(account_id ? { from_account: account_id } : {}).populate('from_account to_account'),
+      FundTransfer.find(account_id ? { to_account: account_id } : {}).populate('from_account to_account'),
+      Sale.find(location_id ? { businessLocation: location_id, status: { $ne: 'return' } } : { status: { $ne: 'return' } }).populate('addedBy customer payments.account payments.method'),
+      Purchase.find(location_id ? { businessLocation: location_id, status: { $ne: 'return' } } : { status: { $ne: 'return' } }).populate('addedBy supplier payments.account payments.method'),
+      Expense.find(location_id ? { businessLocation: location_id } : {}).populate('payments.account payments.method category'),
+      SaleReturn.find(location_id ? { businessLocation: location_id } : {}).populate('addedBy returnPayments.account returnPayments.method originalSale'),
+      PurchaseReturn.find(location_id ? { businessLocation: location_id } : {}).populate('addedBy returnPayments.account returnPayments.method originalPurchase'),
     ]);
 
     let runningBalance = 0;
@@ -80,6 +66,7 @@ exports.getCashFlow = async (req, res) => {
       });
     };
 
+    // Deposit
     deposits.forEach(dep => {
       const accountName = dep.to_account?.name || dep.to_account?.accountNumber || 'N/A';
       pushEntry({
@@ -93,6 +80,7 @@ exports.getCashFlow = async (req, res) => {
       });
     });
 
+    // Fund Transfers
     transfersIn.forEach(tr => {
       const fromAcc = tr.from_account?.name || tr.from_account?.accountNumber || 'N/A';
       pushEntry({
@@ -119,13 +107,12 @@ exports.getCashFlow = async (req, res) => {
       });
     });
 
+    // Sales
     for (const sale of sales) {
       for (const pay of sale.payments || []) {
         if (!account_id || (pay.account && pay.account._id.toString() === account_id)) {
           const addedByName = sale.addedBy?.name || '';
-          const customerName = sale.customer?.firstName
-            ? `${sale.customer.firstName} ${sale.customer.lastName || ''}`
-            : '';
+          const customerName = sale.customer?.firstName ? `${sale.customer.firstName} ${sale.customer.lastName || ''}` : '';
           const accountName = pay.account?.name || pay.account?.accountNumber || 'N/A';
           const description = `Sell\nCustomer: ${customerName}\nInvoice No.: ${sale.invoiceNo}\nPay reference no.: ${pay.paymentRefNo}\nAdded By: ${addedByName}`;
 
@@ -142,17 +129,15 @@ exports.getCashFlow = async (req, res) => {
       }
     }
 
+    // Purchases
     for (const pur of purchases) {
       for (const pay of pur.payments || []) {
-        const accountMatch = !account_id || (pay.account && pay.account._id?.toString() === account_id);
-    
-        if (accountMatch) {
+        if (!account_id || (pay.account && pay.account._id.toString() === account_id)) {
           const addedByName = pur.addedBy?.name || '';
           const supplierName = pur.supplier?.businessName || '';
           const accountName = pay.account?.name || pay.account?.accountNumber || 'N/A';
-    
           const description = `Purchase\nSupplier: ${supplierName}\nRef: ${pur.referenceNo}\nPay reference no.: ${pay.paymentRefNo}\nAdded By: ${addedByName}`;
-    
+
           pushEntry({
             date: pay.paidOn || pur.purchaseDate,
             description,
@@ -165,8 +150,8 @@ exports.getCashFlow = async (req, res) => {
         }
       }
     }
-    
 
+    // Expenses
     expenses.forEach(exp => {
       exp.payments?.forEach(pay => {
         if (!account_id || (pay.account && pay.account._id.toString() === account_id)) {
@@ -184,13 +169,53 @@ exports.getCashFlow = async (req, res) => {
       });
     });
 
-    // Sort by date ASC for opening balance calculation
-    entries.sort((a, b) => new Date(a.date) - new Date(b.date));
+    // Sale Returns (Debit - Money Returned to Customer)
+    saleReturns.forEach(ret => {
+      ret.returnPayments?.forEach(pay => {
+        if (!account_id || (pay.account && pay.account._id.toString() === account_id)) {
+          const accountName = pay.account?.name || pay.account?.accountNumber || 'N/A';
+          const description = `Sale Return\nRef: ${ret.referenceNo}\nPay reference no.: ${pay.paymentRefNo}\nAdded By: ${ret.addedBy?.name || ''}`;
 
+          pushEntry({
+            date: pay.paidOn || ret.returnDate,
+            description,
+            method: pay.method?.name || '',
+            details: pay.note || '',
+            credit: 0,
+            debit: parseFloat(pay.amount || 0),
+            account: accountName
+          });
+        }
+      });
+    });
+
+    // Purchase Returns (Credit - Money Received from Supplier)
+    purchaseReturns.forEach(ret => {
+      ret.returnPayments?.forEach(pay => {
+        if (!account_id || (pay.account && pay.account._id.toString() === account_id)) {
+          const accountName = pay.account?.name || pay.account?.accountNumber || 'N/A';
+          const description = `Purchase Return\nRef: ${ret.referenceNo}\nPay reference no.: ${pay.paymentRefNo}\nAdded By: ${ret.addedBy?.name || ''}`;
+
+          pushEntry({
+            date: pay.paidOn || ret.returnDate,
+            description,
+            method: pay.method?.name || '',
+            details: pay.note || '',
+            credit: parseFloat(pay.amount || 0),
+            debit: 0,
+            account: accountName
+          });
+        }
+      });
+    });
+
+    // Sort & Calculate Opening Balance
+    entries.sort((a, b) => new Date(a.date) - new Date(b.date));
     const opening_balance = entries.length > 0
       ? parseFloat(entries[0].balance) - (parseFloat(entries[0].credit || 0) - parseFloat(entries[0].debit || 0))
       : 0;
 
+    // Final sort DESC
     entries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     res.status(200).json({
