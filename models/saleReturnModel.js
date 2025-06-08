@@ -1,3 +1,5 @@
+const mongoose = require('mongoose');
+
 const saleReturnSchema = new mongoose.Schema({
   originalSale: { type: mongoose.Schema.Types.ObjectId, ref: 'Sale', required: true },
   businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },

@@ -25,6 +25,7 @@ exports.listSaleReturns = async (req, res) => {
       .lean();
 
     const formatted = saleReturns.map(sr => ({
+      _id: sr._id,
       date: sr.returnDate,
       invoiceNo: sr.referenceNo,
       parentSale: sr.originalSale?.invoiceNo || '—',

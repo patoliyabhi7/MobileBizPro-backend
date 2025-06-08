@@ -8,15 +8,16 @@ const path = require('path');
 
 exports.addSale = async (req, res) => {
   try {
+    // Generate invoice number if not provided
     const invoiceNo = req.body.invoiceNo || await generateAutoId('INV');
-    req.body.addedBy = req.user.userId;
 
+    const addedBy = req.user.userId;
     const businessLocation = req.body.businessLocation;
     if (!businessLocation) {
       return res.status(400).json({ error: 'businessLocation is required' });
     }
 
-    // 🧾 Parse payments
+    // Parse payments safely
     let payments = [];
     if (req.body.payments) {
       if (typeof req.body.payments === 'string') {
@@ -28,7 +29,7 @@ exports.addSale = async (req, res) => {
       } else if (Array.isArray(req.body.payments)) {
         payments = req.body.payments;
       }
-
+      // Generate paymentRefNo once per sale (all payments share same ref)
       const paymentRefNo = await generateAutoId('SALEPYMNT');
       payments = payments.map(p => ({
         ...p,
@@ -37,44 +38,58 @@ exports.addSale = async (req, res) => {
       }));
     }
 
-    // 📎 Handle file uploads
+    // Handle uploaded files (if any)
     const filePaths = req.files?.map(file => path.join('uploads', file.filename)) || [];
 
+    // Validate products array presence & stockId presence
+    if (!Array.isArray(req.body.products) || req.body.products.length === 0) {
+      return res.status(400).json({ error: 'At least one product required' });
+    }
+    for (const p of req.body.products) {
+      if (!p.stockId) {
+        return res.status(400).json({ error: 'Each product must have a stockId' });
+      }
+    }
+
+    // Prepare sale data
     const saleData = {
       ...req.body,
       invoiceNo,
+      addedBy,
       documents: filePaths,
-      payments
+      payments,
     };
 
+    // Save sale first
     const sale = new Sale(saleData);
     await sale.save();
 
-    // 💰 Update account balances
+    // Consume stock (mark stock items as used)
+    await consumeStock(req.body.products);
+
+    // Update Purchase records to mark products as sold using stockId
+    const stockIds = req.body.products.map(p => p.stockId);
+    if (stockIds.length > 0) {
+      // Fetch stock documents including purchaseRef
+      const stocks = await Stock.find({ _id: { $in: stockIds } }).select('purchaseRef');
+      for (const stock of stocks) {
+        const purchaseId = stock.purchaseRef;
+        const stockId = stock._id;
+        if (purchaseId) {
+          await Purchase.updateOne(
+            { _id: purchaseId, 'products.stockId': stockId },
+            { $set: { 'products.$.isSold': true } }
+          );
+        }
+      }
+    }
+
+    // Update account balances if payments were made
     if (payments.length > 0) {
       await updateAccountBalances(payments, 'sale');
     }
 
-    // 📦 Consume stock
-    await consumeStock(req.body.products);
-
-    // 🟢 Update Purchase -> isSold using stockId
-    const stockIds = req.body.products.map(p => p.stockId).filter(Boolean);
-
-    if (stockIds.length > 0) {
-      const stocks = await Stock.find({ _id: { $in: stockIds } }).select('purchaseRef');
-
-      for (const stock of stocks) {
-        const purchaseId = stock.purchaseRef;
-        const stockId = stock._id;
-
-        await Purchase.updateOne(
-          { _id: purchaseId, 'products.stockId': stockId },
-          { $set: { 'products.$.isSold': true } }
-        );
-      }
-    }
-
+    // Populate sale for response with relevant references
     const populatedSale = await Sale.findById(sale._id)
       .populate('payments.account')
       .populate('addedBy', 'name _id')

@@ -9,6 +9,7 @@ exports.addPurchase = async (req, res) => {
     req.body.addedBy = req.user.userId;
     const filePaths = req.files?.map(file => `uploads/${file.filename}`) || [];
 
+    // Validate quantity = 1 for each product (due to unique stock)
     for (const productLine of req.body.products || []) {
       if (productLine.quantity !== 1) {
         return res.status(400).json({
@@ -17,6 +18,7 @@ exports.addPurchase = async (req, res) => {
       }
     }
 
+    // Parse payments (support stringified JSON or array)
     let payments = [];
     if (req.body.payments) {
       if (typeof req.body.payments === 'string') {
@@ -46,32 +48,27 @@ exports.addPurchase = async (req, res) => {
 
     const savedPurchase = await purchase.save();
 
+    // Update account balances if payments present
     if (payments.length > 0) {
       await updateAccountBalances(payments, 'purchase');
     }
 
+    // Create stock entries for each product (assign stockId)
     const createdStocks = await createStock(savedPurchase.products, savedPurchase._id, savedPurchase.businessLocation);
 
-    // Assign stockId to products in purchase
+    // Map created stock _id back to products' stockId
     savedPurchase.products.forEach(product => {
       const matchedStock = createdStocks.find(
-        s => s.imeiNo === product.imeiNo && s.product.toString() === product.product.toString()
+        s =>
+          s.imeiNo === product.imeiNo &&
+          s.product.toString() === product.product.toString() &&
+          s.color === product.color &&
+          s.storage === product.storage
       );
       if (matchedStock) product.stockId = matchedStock._id;
     });
 
-    // Save the stockId updated purchase
-    await savedPurchase.save();
-
-    // Assign stockId to products in purchase
-    savedPurchase.products.forEach(product => {
-      const matchedStock = createdStocks.find(
-        s => s.imeiNo === product.imeiNo && s.product.toString() === product.product.toString()
-      );
-      if (matchedStock) product.stockId = matchedStock._id;
-    });
-
-    // Save the stockId updated purchase
+    // Save updated purchase with stockId
     await savedPurchase.save();
 
     const populatedPurchase = await Purchase.findById(savedPurchase._id)

@@ -13,7 +13,8 @@ const purchaseReturnSchema = new mongoose.Schema({
     note: String,
   }],
   totalReturnAmount: { type: Number, required: true },
-  returnDate: { type: Date, default: Date.now },
+  paymentStatus: { type: String, enum: ['paid', 'partial', 'due'], default: 'due' },
+  paymentDue: { type: Number, default: 0 },
   returnPayments: [{
     amount: Number,
     paidOn: Date,
@@ -22,7 +23,9 @@ const purchaseReturnSchema = new mongoose.Schema({
     paymentRefNo: String,
     note: String
   }],
+  returnDate: { type: Date, default: Date.now },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
+
 
 module.exports = mongoose.model('PurchaseReturn', purchaseReturnSchema);

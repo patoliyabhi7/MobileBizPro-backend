@@ -12,7 +12,8 @@ const saleProductSchema = new mongoose.Schema({
   note: String,
   stockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Stock' },
   isReturn: { type: Boolean, default: false },
-  returnDate: { type: Date }
+  returnDate: { type: Date },
+  isSold: { type: Boolean, default: false }
 });
 
 const paymentSchema = new mongoose.Schema({

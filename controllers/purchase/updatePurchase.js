@@ -13,7 +13,70 @@ exports.updatePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found or deleted' });
     }
 
-    // 👇 Validate & parse products
+    // Block product update for sale-return purchases
+    if (oldPurchase.createdFromReturn) {
+      if ('products' in req.body) {
+        return res.status(400).json({
+          error: 'Cannot update products of a sale return purchase. Only payments and documents can be updated.'
+        });
+      }
+
+      if (req.files?.length > 0) {
+        // Remove old documents
+        if (oldPurchase.documents?.length > 0) {
+          oldPurchase.documents.forEach(doc => {
+            if (fs.existsSync(doc)) fs.unlinkSync(doc);
+          });
+        }
+        req.body.documents = req.files.map(file => `uploads/${file.filename}`);
+      }
+
+      let newPayments = [];
+      if ('payments' in req.body) {
+        if (typeof req.body.payments === 'string') {
+          try {
+            newPayments = JSON.parse(req.body.payments);
+          } catch (e) {
+            return res.status(400).json({ error: 'Invalid payments format' });
+          }
+        } else if (Array.isArray(req.body.payments)) {
+          newPayments = req.body.payments;
+        }
+
+        const newRefNo = await generateAutoId('PURPYMNT');
+        newPayments = newPayments.map(p => ({
+          ...p,
+          paidOn: new Date(p.paidOn),
+          paymentRefNo: newRefNo
+        }));
+
+        req.body.payments = newPayments;
+
+        await revertAccountBalances(oldPurchase.payments || [], 'purchase');
+        await updateAccountBalances(newPayments, 'purchase');
+      }
+
+      req.body.addedBy = req.user.userId;
+
+      const updatedPurchase = await Purchase.findByIdAndUpdate(
+        req.params.id,
+        req.body,
+        { new: true }
+      )
+        .populate('addedBy', 'name _id')
+        .populate('payments.account')
+        .populate('payments.method')
+        .populate('supplier', 'businessName firstName lastName')
+        .populate('businessLocation', 'name')
+        .populate('products.product', 'productName');
+
+      return res.status(200).json({
+        message: 'Sale return purchase payment updated successfully',
+        updatedPurchase
+      });
+    }
+
+    // Regular purchase update
     let updatedProducts = [];
     if (req.body.products) {
       updatedProducts = typeof req.body.products === 'string'
@@ -25,24 +88,26 @@ exports.updatePurchase = async (req, res) => {
       }
     }
 
-    // 👇 Get sold and returned products from oldPurchase
     const soldProducts = oldPurchase.products?.filter(p => p.isSold) || [];
     const returnedProducts = oldPurchase.products?.filter(p => p.isReturn) || [];
 
-    // 👇 Prevent modifying/removing returned products
-    const returnedImeis = returnedProducts.map(p => p.imeiNo);
-    const updatedImeis = updatedProducts.map(p => p.imeiNo);
+    const returnedStockIds = returnedProducts.map(p => String(p.stockId));
+    const updatedStockIds = updatedProducts.map(p => String(p.stockId));
 
+    // Cannot remove returned products
     for (const returned of returnedProducts) {
-      if (!updatedImeis.includes(returned.imeiNo)) {
-        return res.status(400).json({ error: `Cannot remove returned product with IMEI: ${returned.imeiNo}` });
+      if (!updatedStockIds.includes(String(returned.stockId))) {
+        return res.status(400).json({
+          error: `Cannot remove returned product with stock ID: ${returned.stockId}`
+        });
       }
     }
 
+    // Cannot modify returned product's details
     const triedToModifyReturned = updatedProducts.some(p => {
-      return returnedImeis.includes(p.imeiNo) &&
+      return returnedStockIds.includes(String(p.stockId)) &&
         !returnedProducts.some(rp =>
-          rp.imeiNo === p.imeiNo &&
+          String(rp.stockId) === String(p.stockId) &&
           rp.product.toString() === p.product &&
           rp.color === p.color &&
           rp.storage === p.storage &&
@@ -54,23 +119,26 @@ exports.updatePurchase = async (req, res) => {
       return res.status(400).json({ error: 'Cannot modify details of returned products' });
     }
 
-    // 👇 Prevent sold product modification
+    // Cannot remove or modify sold product
     for (const sold of soldProducts) {
-      if (!updatedProducts.some(p => p.imeiNo === sold.imeiNo)) {
-        return res.status(400).json({ error: `Cannot remove or modify sold product with IMEI: ${sold.imeiNo}` });
+      if (!updatedStockIds.includes(String(sold.stockId))) {
+        return res.status(400).json({
+          error: `Cannot remove or modify sold product with stock ID: ${sold.stockId}`
+        });
       }
     }
 
-    // 👇 Revert stock of removed unsold products (excluding returned and sold)
-    const removedUnsoldProducts = oldPurchase.products?.filter(
-      p => !p.isSold && !p.isReturn && !updatedImeis.includes(p.imeiNo)
+    // Revert removed unsold stock (exclude sold & returned)
+    const removedUnsold = oldPurchase.products?.filter(p =>
+      !p.isSold &&
+      !p.isReturn &&
+      !updatedStockIds.includes(String(p.stockId))
     ) || [];
 
-    if (removedUnsoldProducts.length > 0) {
-      await revertStock(removedUnsoldProducts);
+    if (removedUnsold.length > 0) {
+      await revertStock(removedUnsold);
     }
 
-    // 👇 Handle document replacement
     if (req.files?.length > 0) {
       if (oldPurchase.documents?.length > 0) {
         oldPurchase.documents.forEach(doc => {
@@ -80,7 +148,7 @@ exports.updatePurchase = async (req, res) => {
       req.body.documents = req.files.map(file => `uploads/${file.filename}`);
     }
 
-    // 👇 Handle payments
+    // Handle payments update
     let newPayments = [];
     if ('payments' in req.body) {
       if (typeof req.body.payments === 'string') {
@@ -105,42 +173,49 @@ exports.updatePurchase = async (req, res) => {
 
     req.body.addedBy = req.user.userId;
 
-    // 👇 Revert account balances
+    // Revert old payments balances before applying new
     await revertAccountBalances(oldPurchase.payments || [], 'purchase');
 
-    // 👇 Identify newly added products (not sold, not returned, not in old purchase)
-    const newlyAddedUnsold = updatedProducts.filter(p => {
-      const alreadyExists = oldPurchase.products?.some(op => op.imeiNo === p.imeiNo);
-      return !alreadyExists;
-    });
+    // Identify newly added unsold products (no stockId or not in old purchase)
+    const newUnsoldProducts = updatedProducts.filter(p =>
+      !oldPurchase.products?.some(op => String(op.stockId) === String(p.stockId))
+    );
 
-    // 👇 Create stock and map stockId to newly added unsold products
-    let createdStocks = [];
-    if (newlyAddedUnsold.length > 0) {
-      createdStocks = await createStock(newlyAddedUnsold, oldPurchase._id, oldPurchase.businessLocation);
+    // Create stock for new unsold products and assign stockId
+    if (newUnsoldProducts.length > 0) {
+      const createdStocks = await createStock(
+        newUnsoldProducts,
+        oldPurchase._id,
+        oldPurchase.businessLocation
+      );
 
-      // Map stockId to updatedProducts
       updatedProducts = updatedProducts.map(p => {
-        const matchedStock = createdStocks.find(
-          s => s.imeiNo === p.imeiNo && s.product.toString() === p.product.toString()
-        );
-        return matchedStock ? { ...p, stockId: matchedStock._id } : p;
+        if (!p.stockId) {
+          const match = createdStocks.find(
+            s =>
+              s.product.toString() === p.product &&
+              s.color === p.color &&
+              s.storage === p.storage &&
+              s.serialNo === p.serialNo
+          );
+          if (match) return { ...p, stockId: match._id };
+        }
+        return p;
       });
     }
 
-    // 👇 Create final merged product list
+    // Merge final products: sold + returned + updated unsold
     const finalProducts = [
       ...soldProducts,
       ...returnedProducts,
       ...updatedProducts.filter(p =>
-        !soldProducts.some(sp => sp.imeiNo === p.imeiNo) &&
-        !returnedProducts.some(rp => rp.imeiNo === p.imeiNo)
+        !soldProducts.some(sp => String(sp.stockId) === String(p.stockId)) &&
+        !returnedProducts.some(rp => String(rp.stockId) === String(p.stockId))
       )
     ];
 
     req.body.products = finalProducts;
 
-    // 👇 Update the purchase document
     const updatedPurchase = await Purchase.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -157,12 +232,14 @@ exports.updatePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found after update' });
     }
 
-    // 👇 Reapply updated payments to accounts
     if (updatedPurchase.payments?.length > 0) {
       await updateAccountBalances(updatedPurchase.payments, 'purchase');
     }
 
-    res.status(200).json({ message: 'Purchase updated successfully', updatedPurchase });
+    res.status(200).json({
+      message: 'Purchase updated successfully',
+      updatedPurchase
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

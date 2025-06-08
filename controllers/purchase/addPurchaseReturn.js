@@ -1,80 +1,92 @@
 const mongoose = require('mongoose');
 const Purchase = require('../../models/purchaseModel');
 const PurchaseReturn = require('../../models/purchaseReturnModel');
-const { validatePurchaseReturn } = require('../../utils/validateReturn');
-const consumeStock = require('../../utils/consumeStock');
-const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 const generateAutoId = require('../../utils/generateAutoId');
+const consumeStock = require('../../utils/consumeStock');
 
 exports.addPurchaseReturn = async (req, res) => {
   try {
     const { oldPurchaseId } = req.params;
-    const { businessLocation, productIds = [], returnPayments = [] } = req.body;
+    const { businessLocation, products = [], totalReturnAmount = 0 } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(oldPurchaseId)) {
       return res.status(400).json({ error: 'Invalid Purchase ID format' });
     }
 
-    if (!businessLocation || productIds.length === 0) {
-      return res.status(400).json({ error: 'businessLocation and productIds are required' });
+    if (!businessLocation || products.length === 0) {
+      return res.status(400).json({ error: 'Business location and products are required' });
     }
 
     const purchase = await Purchase.findById(oldPurchaseId);
     if (!purchase || purchase.isDeleted) {
-      return res.status(404).json({ error: 'Purchase not found' });
+      return res.status(404).json({ error: 'Original purchase not found' });
     }
 
     if (purchase.businessLocation.toString() !== businessLocation) {
       return res.status(403).json({ error: 'Purchase does not belong to the given business location' });
     }
 
-    const returnDate = new Date();
+    // Map returned product details from purchase.products
+    const returnedProducts = [];
 
-    const returnedProducts = purchase.products.filter(p => productIds.includes(p._id.toString()));
-    if (returnedProducts.length === 0) {
-      return res.status(400).json({ error: 'No matching products found for return' });
+    for (let item of products) {
+      const { productId, unitCost } = item;
+
+      const matchedProduct = purchase.products.find(
+        p =>
+          p.product.toString() === productId &&
+          !p.isReturn // not already returned
+      );
+
+      if (!matchedProduct) {
+        return res.status(400).json({
+          error: `Product with ID ${productId} not found or already returned in this purchase.`
+        });
+      }
+
+      // Mark as returned in purchase
+      matchedProduct.isReturn = true;
+      matchedProduct.returnDate = new Date();
+
+      // Push to return document
+      returnedProducts.push({
+        product: matchedProduct.product,
+        imeiNo: matchedProduct.imeiNo,
+        color: matchedProduct.color,
+        storage: matchedProduct.storage,
+        lineTotal: unitCost,
+        note: ''
+      });
     }
 
-    await validatePurchaseReturn(returnedProducts);
-
-    purchase.products = purchase.products.map(p => {
-      if (productIds.includes(p._id.toString())) {
-        return { ...p.toObject(), isReturn: true, returnDate };
-      }
-      return p;
-    });
     await purchase.save();
 
-    const totalReturnAmount = returnedProducts.reduce((sum, p) => sum + (p.lineTotal || 0), 0);
+    // Update stock availability
+    await consumeStock(
+      purchase.products
+        .filter(p => p.isReturn && p.stockId)
+        .map(p => ({ stockId: p.stockId }))
+    );
 
-    await consumeStock(returnedProducts);
-    await updateAccountBalances(returnPayments, 'purchase_return');
-
-    await PurchaseReturn.create({
+    const returnDoc = await PurchaseReturn.create({
       originalPurchase: purchase._id,
       businessLocation,
       referenceNo: await generateAutoId('PURRET'),
-      returnedProducts: returnedProducts.map(p => ({
-        product: p.product,
-        imeiNo: p.imeiNo,
-        color: p.color,
-        storage: p.storage,
-        lineTotal: p.lineTotal,
-        note: p.note,
-      })),
+      returnedProducts,
       totalReturnAmount,
-      returnDate,
-      returnPayments,
+      paymentStatus: 'due',
+      paymentDue: totalReturnAmount,
+      returnPayments: [],
+      returnDate: new Date(),
       addedBy: req.user?._id
     });
 
     res.status(200).json({
       message: 'Purchase return recorded successfully',
-      totalReturnAmount,
-      returnPayments
+      purchaseReturn: returnDoc
     });
   } catch (err) {
-    console.error(err);
+    console.error('Add Purchase Return Error:', err);
     res.status(500).json({ error: err.message || 'Internal server error' });
   }
 };
