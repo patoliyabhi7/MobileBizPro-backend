@@ -89,9 +89,9 @@ exports.getAccountBook = async (req, res) => {
       saleReturns,
       purchaseReturns
     ] = await Promise.all([
-      Deposit.find({ ...getDateRangeMatch('createdAt', startDate, endDate, locationId), to_account: accountId }).populate('addedBy', 'name'),
-      FundTransfer.find({ ...getDateRangeMatch('createdAt', startDate, endDate, locationId), from_account: accountId }).populate('addedBy', 'name'),
-      FundTransfer.find({ ...getDateRangeMatch('createdAt', startDate, endDate, locationId), to_account: accountId }).populate('addedBy', 'name'),
+      Deposit.find({ ...getDateRangeMatch('dateTime', startDate, endDate, locationId), to_account: accountId }).populate('addedBy', 'name'),
+      FundTransfer.find({ ...getDateRangeMatch('dateTime', startDate, endDate, locationId), from_account: accountId }).populate('addedBy', 'name'),
+      FundTransfer.find({ ...getDateRangeMatch('dateTime', startDate, endDate, locationId), to_account: accountId }).populate('addedBy', 'name'),
       Sale.find({ ...getDateRangeMatch('saleDate', startDate, endDate, locationId), 'payments.account': accountId }).populate('addedBy', 'name'),
       Purchase.find({ ...getDateRangeMatch('purchaseDate', startDate, endDate, locationId), 'payments.account': accountId }).populate('addedBy', 'name'),
       Expense.find({ ...getDateRangeMatch('transactionDate', startDate, endDate, locationId), 'payments.account': accountId }).populate('addedBy', 'name'),
@@ -100,9 +100,9 @@ exports.getAccountBook = async (req, res) => {
     ]);
 
     deposits.forEach(dep => {
-      if (isInDateRange(dep.createdAt)) {
+      if (isInDateRange(dep.dateTime)) {
         pushEntry({
-          date: dep.createdAt,
+          date: dep.dateTime,
           description: `Deposit`,
           method: '',
           details: '',
@@ -115,9 +115,9 @@ exports.getAccountBook = async (req, res) => {
     });
 
     transfersOut.forEach(tr => {
-      if (isInDateRange(tr.createdAt)) {
+      if (isInDateRange(tr.dateTime)) {
         pushEntry({
-          date: tr.createdAt,
+          date: tr.dateTime,
           description: `Fund Transfer Sent to Account ID ${tr.to_account}`,
           method: '',
           details: '',
@@ -130,9 +130,9 @@ exports.getAccountBook = async (req, res) => {
     });
 
     transfersIn.forEach(tr => {
-      if (isInDateRange(tr.createdAt)) {
+      if (isInDateRange(tr.dateTime)) {
         pushEntry({
-          date: tr.createdAt,
+          date: tr.dateTime,
           description: `Fund Transfer Received from Account ID ${tr.from_account}`,
           method: '',
           details: '',
