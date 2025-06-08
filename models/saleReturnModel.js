@@ -26,3 +26,5 @@ const saleReturnSchema = new mongoose.Schema({
   returnDate: { type: Date, default: Date.now },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
+
+module.exports = mongoose.model('SaleReturn', saleReturnSchema);
