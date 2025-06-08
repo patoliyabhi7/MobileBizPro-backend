@@ -4,21 +4,7 @@ const Sale = require('../../models/saleModel');
 exports.listAllSales = async (req, res) => {
   try {
     const sales = await Sale.find({
-      isDeleted: false,
-      $expr: {
-        $gt: [
-          {
-            $size: {
-              $filter: {
-                input: '$products',
-                as: 'product',
-                cond: { $eq: ['$$product.isReturn', false] }
-              }
-            }
-          },
-          0
-        ]
-      }
+      isDeleted: false
     })
       .populate('customer')
       .populate('businessLocation')
@@ -27,14 +13,7 @@ exports.listAllSales = async (req, res) => {
       .populate('payments.account')
       .populate('payments.method');
 
-    // Filter products on each sale to include only non-returned products
-    const filteredSales = sales.map(sale => {
-      const saleObj = sale.toObject();
-      saleObj.products = saleObj.products.filter(p => p.isReturn === false);
-      return saleObj;
-    });
-
-    res.status(200).json(filteredSales);
+    res.status(200).json(sales);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

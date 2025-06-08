@@ -13,21 +13,7 @@ exports.getAllPurchasesByBusinessLocation = async (req, res) => {
 
     const purchases = await Purchase.find({
       businessLocation: locationId,
-      isDeleted: false,
-      $expr: {
-        $gt: [
-          {
-            $size: {
-              $filter: {
-                input: '$products',
-                as: 'product',
-                cond: { $eq: ['$$product.isReturn', false] }
-              }
-            }
-          },
-          0
-        ]
-      }
+      isDeleted: false
     })
       .populate('supplier', 'businessName firstName lastName')
       .populate('businessLocation', 'name')

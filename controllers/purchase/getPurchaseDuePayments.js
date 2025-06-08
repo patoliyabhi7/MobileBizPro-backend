@@ -13,25 +13,14 @@ exports.getPurchaseDuePayments = async (req, res) => {
       paymentStatus: { $ne: 'paid' },
       paymentDue: { $gt: 0 },
       isDeleted: false,
-      businessLocation: locationId,
-      $expr: {
-        $gt: [
-          {
-            $size: {
-              $filter: {
-                input: '$products',
-                as: 'product',
-                cond: { $eq: ['$$product.isReturn', false] }
-              }
-            }
-          },
-          0
-        ]
-      }
+      businessLocation: locationId
     }).populate('supplier', 'firstName lastName');
 
     const result = duePurchases.map(purchase => ({
-      supplierName: purchase.supplier?.firstName + ' ' + purchase.supplier?.lastName || 'N/A',
+      supplierName:
+        (purchase.supplier?.firstName || '') +
+        ' ' +
+        (purchase.supplier?.lastName || '') || 'N/A',
       referenceNo: purchase.referenceNo,
       dueAmount: purchase.paymentDue,
       purchaseId: purchase._id
