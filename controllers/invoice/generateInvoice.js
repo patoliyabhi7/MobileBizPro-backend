@@ -7,65 +7,66 @@ const path = require('path');
 const fs = require('fs');
 
 exports.generateInvoice = async (req, res) => {
-    try {
-        const { saleId } = req.params;
+  try {
+    const { saleId } = req.params;
 
-        if (!mongoose.Types.ObjectId.isValid(saleId)) {
-            return res.status(400).json({ error: 'Invalid Sale ID format' });
-        }
+    if (!mongoose.Types.ObjectId.isValid(saleId)) {
+      return res.status(400).json({ error: 'Invalid Sale ID format' });
+    }
 
-        // Fetch sale data with relations
-        const sale = await Sale.findOne({ _id: saleId })
-            .populate('customer')
-            .populate('addedBy')
-            .populate('businessLocation')
-            .populate({
-                path: 'products.product',
-                populate: {
-                    path: 'brand',
-                },
-            })
-            .populate('payments.method')
-            .populate('payments.account');
+    // Fetch sale data with relations
+    const sale = await Sale.findOne({ _id: saleId })
+      .populate('customer')
+      .populate('addedBy')
+      .populate('businessLocation')
+      .populate({
+        path: 'products.product',
+        populate: {
+          path: 'brand',
+        },
+      })
+      .populate('payments.method')
+      .populate('payments.account');
 
-        if (!sale || sale.isDeleted) {
-            return res.status(404).json({ error: 'Sale not found' });
-        }
+    if (!sale || sale.isDeleted) {
+      return res.status(404).json({ error: 'Sale not found' });
+    }
 
-        // Fetch default invoice layout
-        const layout = await InvoiceLayout.findOne({ isDefault: true, isDeleted: false });
-        if (!layout) {
-            return res.status(400).json({ error: 'Default invoice layout not set' });
-        }
+    // Fetch default invoice layout
+    const layout = await InvoiceLayout.findOne({ isDefault: true, isDeleted: false });
+    if (!layout) {
+      return res.status(400).json({ error: 'Default invoice layout not set' });
+    }
 
-        // Calculate totals and words
-        const totalQuantity = sale.products.reduce((sum, p) => sum + (p.quantity || 0), 0);
-        const totalPaid = sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-        const paymentDue = (sale.total || 0) - totalPaid;
-        const totalInWords = capitalizeFirstChar(numberToIndianWords(Math.floor(sale.total || 0))) + ' rupees only';
+    // Calculate totals and words
+    const validProducts = sale.products.filter(p => !p.isReturn); // 👈 Only non-returned products
+    const totalQuantity = validProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
+    const totalPaid = sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const paymentDue = (sale.total || 0) - totalPaid;
+    const totalInWords = capitalizeFirstChar(numberToIndianWords(Math.floor(sale.total || 0))) + ' rupees only';
 
-        // Prepare logo as base64 if exists
-        let logoTag = `<strong>${layout.shopName || ''}</strong>`;
+    // Prepare logo as base64 if exists
+    let logoTag = `<strong>${layout.shopName || ''}</strong>`;
 
-        // Only try to embed if logo is defined
-        if (layout.logo) {
-            // Full path to logo file
-            const logoPath = path.join(__dirname, '../../uploads', path.basename(layout.logo));
-            
-            if (fs.existsSync(logoPath)) {
-                const imgData = fs.readFileSync(logoPath).toString('base64');
-                const ext = path.extname(layout.logo).toLowerCase();
-                const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
+    // Only try to embed if logo is defined
+    if (layout.logo) {
+      // Full path to logo file
+      const logoPath = path.join(__dirname, '../../uploads', path.basename(layout.logo));
 
-                logoTag = `<img src="data:${mime};base64,${imgData}" style="height:150px; width:auto;">`;
-            } else {
-                console.warn('Logo file not found:', logoPath);
-            }
-        }
+      if (fs.existsSync(logoPath)) {
+        const imgData = fs.readFileSync(logoPath).toString('base64');
+        const ext = path.extname(layout.logo).toLowerCase();
+        const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
 
-        // Generate product table rows with your specific columns including IMEI
-        const productRows = sale.products
-            .map((p, i) => `
+        logoTag = `<img src="data:${mime};base64,${imgData}" style="height:150px; width:auto;">`;
+      } else {
+        console.warn('Logo file not found:', logoPath);
+      }
+    }
+
+    // Generate product table rows with your specific columns including IMEI
+    const productRows = validProducts
+      .map((p, i) => `
     <tr>
       <td>${i + 1}</td>
       <td>
@@ -77,11 +78,12 @@ exports.generateInvoice = async (req, res) => {
       <td>₹${(p.lineTotal || 0).toFixed(2)}</td>
     </tr>
   `)
-            .join('');
+      .join('');
 
 
-        // HTML invoice with your exact style and black color, modern border styles
-        const html = `
+
+    // HTML invoice with your exact style and black color, modern border styles
+    const html = `
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -267,75 +269,75 @@ exports.generateInvoice = async (req, res) => {
     </html>
     `;
 
-        // Launch puppeteer to generate PDF
-        const browser = await puppeteer.launch({ headless: 'new' });
-        const page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'networkidle0' });
-        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
-        await browser.close();
+    // Launch puppeteer to generate PDF
+    const browser = await puppeteer.launch({ headless: 'new' });
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+    await browser.close();
 
-        // Send PDF as response
-        res.set({
-            'Content-Type': 'application/pdf',
-            'Content-Disposition': `attachment; filename=invoice-${sale.invoiceNo || sale._id}.pdf`,
-        });
-        res.send(pdfBuffer);
-    } catch (err) {
-        console.error('Error generating invoice:', err);
-        res.status(500).json({ error: err.message });
-    }
+    // Send PDF as response
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=invoice-${sale.invoiceNo || sale._id}.pdf`,
+    });
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('Error generating invoice:', err);
+    res.status(500).json({ error: err.message });
+  }
 };
 
 function formatDate(date) {
-    const d = new Date(date);
-    return isNaN(d)
-        ? '-'
-        : `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1)
-            .toString()
-            .padStart(2, '0')}/${d.getFullYear()}`;
+  const d = new Date(date);
+  return isNaN(d)
+    ? '-'
+    : `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1)
+      .toString()
+      .padStart(2, '0')}/${d.getFullYear()}`;
 }
 
 function numberToIndianWords(num) {
-    const ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
-        'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
-    const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+  const ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+    'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+  const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
 
-    if (num === 0) return 'zero';
+  if (num === 0) return 'zero';
 
-    function numToWords(n, suffix) {
-        let str = '';
-        if (n > 19) {
-            str += tens[Math.floor(n / 10)] + (n % 10 !== 0 ? ' ' + ones[n % 10] : '');
-        } else if (n > 0) {
-            str += ones[n];
-        }
-        if (n > 0) str += ' ' + suffix + ' ';
-        return str;
+  function numToWords(n, suffix) {
+    let str = '';
+    if (n > 19) {
+      str += tens[Math.floor(n / 10)] + (n % 10 !== 0 ? ' ' + ones[n % 10] : '');
+    } else if (n > 0) {
+      str += ones[n];
     }
+    if (n > 0) str += ' ' + suffix + ' ';
+    return str;
+  }
 
-    let crore = Math.floor(num / 10000000);
-    let lakh = Math.floor((num % 10000000) / 100000);
-    let thousand = Math.floor((num % 100000) / 1000);
-    let hundred = Math.floor((num % 1000) / 100);
-    let rest = num % 100;
+  let crore = Math.floor(num / 10000000);
+  let lakh = Math.floor((num % 10000000) / 100000);
+  let thousand = Math.floor((num % 100000) / 1000);
+  let hundred = Math.floor((num % 1000) / 100);
+  let rest = num % 100;
 
-    let result = '';
-    if (crore > 0) result += numToWords(crore, 'crore');
-    if (lakh > 0) result += numToWords(lakh, 'lakh');
-    if (thousand > 0) result += numToWords(thousand, 'thousand');
-    if (hundred > 0) result += numToWords(hundred, 'hundred');
-    if (rest > 0) {
-        if (result !== '') result += 'and ';
-        if (rest > 19) {
-            result += tens[Math.floor(rest / 10)] + (rest % 10 !== 0 ? ' ' + ones[rest % 10] : '');
-        } else {
-            result += ones[rest];
-        }
+  let result = '';
+  if (crore > 0) result += numToWords(crore, 'crore');
+  if (lakh > 0) result += numToWords(lakh, 'lakh');
+  if (thousand > 0) result += numToWords(thousand, 'thousand');
+  if (hundred > 0) result += numToWords(hundred, 'hundred');
+  if (rest > 0) {
+    if (result !== '') result += 'and ';
+    if (rest > 19) {
+      result += tens[Math.floor(rest / 10)] + (rest % 10 !== 0 ? ' ' + ones[rest % 10] : '');
+    } else {
+      result += ones[rest];
     }
-    return result.trim();
+  }
+  return result.trim();
 }
 
 function capitalizeFirstChar(str) {
-    if (!str) return '';
-    return str.charAt(0).toUpperCase() + str.slice(1);
+  if (!str) return '';
+  return str.charAt(0).toUpperCase() + str.slice(1);
 }
