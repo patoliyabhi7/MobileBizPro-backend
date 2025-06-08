@@ -2,15 +2,13 @@ const Stock = require('../models/stockModel');
 
 exports.validatePurchaseReturn = async (products = []) => {
   for (const item of products) {
-    if (!item.imeiNo) {
-      throw new Error(`IMEI is required for each product to process a return.`);
-    }
-    console.log(item.imeiNo);
+    const stockId = item.stockId;
+    if (!stockId) throw new Error('stockId is required for each product');
 
-    const stock = await Stock.findOne({ imeiNo: item.imeiNo });
-    console.log(stock);
+    const stock = await Stock.findById(stockId);
+
     if (!stock || stock.status === 0) {
-      throw new Error(`Cannot return product with IMEI ${item.imeiNo} because it's already sold or not available in stock.`);
+      throw new Error(`Cannot return product with stockId ${stockId} because it's already sold or not found.`);
     }
   }
 };

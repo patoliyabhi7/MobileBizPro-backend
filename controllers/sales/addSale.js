@@ -4,6 +4,7 @@ const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 const consumeStock = require('../../utils/consumeStock');
 const Purchase = require('../../models/purchaseModel');
 const Stock = require('../../models/stockModel');
+const path = require('path');
 
 exports.addSale = async (req, res) => {
   try {
@@ -54,24 +55,24 @@ exports.addSale = async (req, res) => {
       await updateAccountBalances(payments, 'sale');
     }
 
-    // 📦 Consume stock (mark IMEI items as used)
+    // 📦 Consume stock
     await consumeStock(req.body.products);
 
-    const imeiNos = req.body.products.map(p => p.imeiNo).filter(Boolean);
+    // 🟢 Update Purchase -> isSold using stockId
+    const stockIds = req.body.products.map(p => p.stockId).filter(Boolean);
 
-    if (imeiNos.length > 0) {
-      const stocks = await Stock.find({ imeiNo: { $in: imeiNos } }).select('purchaseRef imeiNo');
+    if (stockIds.length > 0) {
+      const stocks = await Stock.find({ _id: { $in: stockIds } }).select('purchaseRef');
 
       for (const stock of stocks) {
         const purchaseId = stock.purchaseRef;
-        const imeiNo = stock.imeiNo;
+        const stockId = stock._id;
 
         await Purchase.updateOne(
-          { _id: purchaseId, 'products.imeiNo': imeiNo },
+          { _id: purchaseId, 'products.stockId': stockId },
           { $set: { 'products.$.isSold': true } }
         );
       }
-
     }
 
     const populatedSale = await Sale.findById(sale._id)

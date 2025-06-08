@@ -24,16 +24,14 @@ exports.updateSale = async (req, res) => {
       return res.status(404).json({ message: 'Sale not found' });
     }
 
-    // Clone old payments to prevent mutation issues
     const oldPaymentsClone = JSON.parse(JSON.stringify(oldSale.payments || []));
 
-    // Determine businessLocation
     const businessLocation = req.body.businessLocation || oldSale.businessLocation?.toString();
     if (!businessLocation) {
       return res.status(400).json({ error: 'businessLocation is required' });
     }
 
-    // Handle document replacement
+    // Handle documents
     if (req.files?.length > 0 && Array.isArray(oldSale.documents)) {
       oldSale.documents.forEach(docPath => {
         if (fs.existsSync(docPath)) fs.unlinkSync(docPath);
@@ -41,7 +39,7 @@ exports.updateSale = async (req, res) => {
       req.body.documents = req.files.map(file => path.join('uploads', file.filename));
     }
 
-    // Handle payments parsing and formatting
+    // Handle payments
     let newPayments = [];
     if ('payments' in req.body) {
       if (typeof req.body.payments === 'string') {
@@ -54,7 +52,6 @@ exports.updateSale = async (req, res) => {
         newPayments = req.body.payments;
       }
 
-      // Assign new ref no
       const newRefNo = await generateAutoId('SALEPYMNT');
       newPayments = newPayments.map(p => ({
         ...p,
@@ -68,18 +65,18 @@ exports.updateSale = async (req, res) => {
 
     req.body.addedBy = req.user.userId;
 
-    // Revert only unsold old products stock
+    // Revert unsold products only
     const unsoldOldProducts = oldSale.products?.filter(p => !p.isSold) || [];
     if (unsoldOldProducts.length > 0) {
       await revertStock(unsoldOldProducts);
     }
 
-    // Revert old account balances
+    // Revert old payments
     if (oldPaymentsClone.length > 0) {
       await revertAccountBalances(oldPaymentsClone, 'sale');
     }
 
-    // Update sale
+    // Update the Sale
     const updatedSale = await Sale.findByIdAndUpdate(
       saleId,
       req.body,
@@ -96,30 +93,28 @@ exports.updateSale = async (req, res) => {
       return res.status(404).json({ message: 'Sale not found after update' });
     }
 
-    // Consume stock only for unsold new products
+    // Consume new unsold stock
     const newUnsoldProducts = req.body.products?.filter(p => !p.isSold) || [];
     if (newUnsoldProducts.length > 0) {
       await consumeStock(newUnsoldProducts);
 
-      // Fetch purchaseRefs using imeiNo
-      const imeiNos = newUnsoldProducts.map(p => p.imeiNo).filter(Boolean);
+      const stockIds = newUnsoldProducts.map(p => p.stockId).filter(Boolean);
 
-      if (imeiNos.length > 0) {
-        const stocks = await Stock.find({ imeiNo: { $in: imeiNos } }).select('purchaseRef imeiNo');
+      if (stockIds.length > 0) {
+        const stocks = await Stock.find({ _id: { $in: stockIds } }).select('purchaseRef');
 
         for (const stock of stocks) {
           const purchaseId = stock.purchaseRef;
-          const imeiNo = stock.imeiNo;
+          const stockId = stock._id;
 
           await Purchase.updateOne(
-            { _id: purchaseId, 'products.imeiNo': imeiNo },
+            { _id: purchaseId, 'products.stockId': stockId },
             { $set: { 'products.$.isSold': true } }
           );
         }
       }
     }
 
-    // Update account balances again
     if (updatedSale.payments.length > 0) {
       await updateAccountBalances(newPayments, 'sale');
     }

@@ -3,13 +3,14 @@ const mongoose = require('mongoose');
 const purchaseProductSchema = new mongoose.Schema({
   product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
   serialNo: String,
-  imeiNo: { type: String, unique: true, required: true, sparse: true },
+  imeiNo: { type: String },
   color: String,
   storage: String,
   quantity: { type: Number, required: true },
   unitCost: { type: Number, required: true },
   lineTotal: { type: Number, required: true },
   note: String,
+  stockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Stock' },
   isSold: { type: Boolean, default: false },
   isReturn: { type: Boolean, default: false },
   returnDate: { type: Date }

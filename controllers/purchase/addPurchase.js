@@ -50,7 +50,29 @@ exports.addPurchase = async (req, res) => {
       await updateAccountBalances(payments, 'purchase');
     }
 
-    await createStock(savedPurchase.products, savedPurchase._id, savedPurchase.businessLocation); 
+    const createdStocks = await createStock(savedPurchase.products, savedPurchase._id, savedPurchase.businessLocation);
+
+    // Assign stockId to products in purchase
+    savedPurchase.products.forEach(product => {
+      const matchedStock = createdStocks.find(
+        s => s.imeiNo === product.imeiNo && s.product.toString() === product.product.toString()
+      );
+      if (matchedStock) product.stockId = matchedStock._id;
+    });
+
+    // Save the stockId updated purchase
+    await savedPurchase.save();
+
+    // Assign stockId to products in purchase
+    savedPurchase.products.forEach(product => {
+      const matchedStock = createdStocks.find(
+        s => s.imeiNo === product.imeiNo && s.product.toString() === product.product.toString()
+      );
+      if (matchedStock) product.stockId = matchedStock._id;
+    });
+
+    // Save the stockId updated purchase
+    await savedPurchase.save();
 
     const populatedPurchase = await Purchase.findById(savedPurchase._id)
       .populate('supplier', 'businessName firstName lastName')
