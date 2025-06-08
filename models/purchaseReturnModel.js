@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const purchaseReturnSchema = new mongoose.Schema({
   originalPurchase: { type: mongoose.Schema.Types.ObjectId, ref: 'Purchase', required: true },
   businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
+  referenceNo: { type: String, required: true },
   returnedProducts: [{
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
     imeiNo: String,
