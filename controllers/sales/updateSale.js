@@ -35,7 +35,6 @@ exports.updateSale = async (req, res) => {
     const resolvedProducts = [];
 
     for (const p of req.body.products) {
-      // Check if this product exists in oldSale (means already sold before)
       const match = (oldSale.products || []).find(old =>
         old.stockId?.toString() === p.stockId ||
         (
@@ -45,14 +44,14 @@ exports.updateSale = async (req, res) => {
           old.storage === p.storage
         )
       );
-
+    
       if (match && match.stockId) {
         resolvedProducts.push({
           ...p,
           stockId: match.stockId,
+          isReturn: match.isReturn === true, // Preserve isReturn if it was previously returned
         });
       } else {
-        // It's a new product, find available stock
         const stock = await Stock.findOne({
           product: p.product,
           imeiNo: p.imeiNo,
@@ -60,19 +59,21 @@ exports.updateSale = async (req, res) => {
           storage: p.storage,
           status: 1,
         });
-
+    
         if (!stock) {
           return res.status(404).json({
             error: `No available stock found for product ${p.product} (IMEI: ${p.imeiNo || 'N/A'})`,
           });
         }
-
+    
         resolvedProducts.push({
           ...p,
           stockId: stock._id,
+          isReturn: false, // Explicitly mark new entries as non-returned
         });
       }
     }
+    
 
     if (req.files?.length > 0 && Array.isArray(oldSale.documents)) {
       for (const docPath of oldSale.documents) {

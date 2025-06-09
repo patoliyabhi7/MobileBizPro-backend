@@ -39,12 +39,11 @@ exports.generateInvoice = async (req, res) => {
     }
 
     // Calculate totals and words
-    const validProducts = sale.products.filter(p => !p.isReturn); // 👈 Only non-returned products
-    const totalQuantity = validProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
-    const subtotal = validProducts.reduce((sum, p) => sum + (p.lineTotal || 0), 0);
+    const allProducts = sale.products;
+    const totalQuantity = allProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
     const totalPaid = sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const paymentDue = subtotal - totalPaid;
-    const totalInWords = capitalizeFirstChar(numberToIndianWords(Math.floor(subtotal))) + ' rupees only';
+    const paymentDue = (sale.total || 0) - totalPaid;
+    const totalInWords = capitalizeFirstChar(numberToIndianWords(Math.floor(sale.total || 0))) + ' rupees only';
 
     // Prepare logo as base64 if exists
     let logoTag = `<strong>${layout.shopName || ''}</strong>`;
@@ -66,22 +65,24 @@ exports.generateInvoice = async (req, res) => {
     }
 
     // Generate product table rows with your specific columns including IMEI
-    const productRows = validProducts
-      .map((p, i) => `
-    <tr>
-      <td>${i + 1}</td>
-      <td>
-        ${p.product?.brand?.name + " " + p.product?.productName + " " + p.storage + " " + p.color || ''}
-      </td>
-      <td>${p.imeiNo || '-'}</td>
-      <td>${p.quantity || 0}</td>
-      <td>₹${(p.unitPrice || 0).toFixed(2)}</td>
-      <td>₹${(p.lineTotal || 0).toFixed(2)}</td>
-    </tr>
-  `)
+    const productRows = allProducts
+      .map((p, i) => {
+        const isReturn = p.isReturn;
+        const returnLabel = isReturn ? `<strong style="color: red;">[ Returned ]</strong>` : '';
+        const description = `${p.product?.brand?.name || ''} ${p.product?.productName || ''} ${p.storage || ''} ${p.color || ''}`;
+
+        return `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${description} ${returnLabel}</td>
+        <td>${p.imeiNo || '-'}</td>
+        <td>${p.quantity || 0}</td>
+        <td>₹${(p.unitPrice || 0).toFixed(2)}</td>
+        <td>₹${(p.lineTotal || 0).toFixed(2)}</td>
+      </tr>
+      `;
+      })
       .join('');
-
-
 
     // HTML invoice with your exact style and black color, modern border styles
     const html = `
