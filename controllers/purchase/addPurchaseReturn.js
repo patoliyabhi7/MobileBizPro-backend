@@ -26,42 +26,51 @@ exports.addPurchaseReturn = async (req, res) => {
       return res.status(403).json({ error: 'Purchase does not belong to the given business location' });
     }
 
-    // Map returned product details from purchase.products
     const returnedProducts = [];
 
     for (let item of products) {
       const { productId, unitCost } = item;
-
+    
       const matchedProduct = purchase.products.find(
         p =>
           p.product.toString() === productId &&
-          !p.isReturn // not already returned
+          !p.isReturn // ✅ We only allow not-yet-returned items
       );
-
+    
       if (!matchedProduct) {
         return res.status(400).json({
-          error: `Product with ID ${productId} not found or already returned in this purchase.`
+          error: `Product with ID ${productId} not found or already returned.`
         });
       }
-
-      // Mark as returned in purchase
+    
+      if (matchedProduct.isSold) {
+        return res.status(400).json({
+          error: `Product with ID ${productId} is already sold and cannot be returned.`
+        });
+      }
+    
       matchedProduct.isReturn = true;
       matchedProduct.returnDate = new Date();
-
-      // Push to return document
+    
       returnedProducts.push({
         product: matchedProduct.product,
         imeiNo: matchedProduct.imeiNo,
         color: matchedProduct.color,
         storage: matchedProduct.storage,
+        unitCost: unitCost,
         lineTotal: unitCost,
+        quantity: 1,
+        gstApplicable: matchedProduct.gstApplicable || false,
+        gstPercentage: matchedProduct.gstPercentage || 18,
+        gstAmount: matchedProduct.gstAmount || 0,
+        lineTotalWithGst: matchedProduct.lineTotalWithGst || 0,
+        serialNo: matchedProduct.serialNo,
         note: ''
       });
-    }
+    }    
 
     await purchase.save();
 
-    // Update stock availability
     await consumeStock(
       purchase.products
         .filter(p => p.isReturn && p.stockId)
