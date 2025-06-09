@@ -13,6 +13,7 @@ exports.updatePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found or deleted' });
     }
 
+    // If purchase is created from sale return, restrict product updates
     if (oldPurchase.createdFromReturn) {
       if ('products' in req.body) {
         return res.status(400).json({
@@ -20,6 +21,7 @@ exports.updatePurchase = async (req, res) => {
         });
       }
 
+      // Handle documents update (delete old, add new)
       if (req.files?.length > 0) {
         if (oldPurchase.documents?.length > 0) {
           oldPurchase.documents.forEach(doc => {
@@ -29,6 +31,7 @@ exports.updatePurchase = async (req, res) => {
         req.body.documents = req.files.map(file => `uploads/${file.filename}`);
       }
 
+      // Handle payments update
       let newPayments = [];
       if ('payments' in req.body) {
         if (typeof req.body.payments === 'string') {
@@ -74,12 +77,36 @@ exports.updatePurchase = async (req, res) => {
       });
     }
 
+    // Parse updated products array from request
     let updatedProducts = [];
     if (req.body.products) {
       updatedProducts = typeof req.body.products === 'string'
         ? JSON.parse(req.body.products)
         : req.body.products;
 
+      // Fill missing stockId from oldPurchase.products by matching keys
+      updatedProducts = updatedProducts.map(up => {
+        if (!up.stockId) {
+          const match = oldPurchase.products.find(op =>
+            op.product.toString() === up.product &&
+            op.color === up.color &&
+            op.storage === up.storage &&
+            (op.imeiNo === up.imeiNo || op.serialNo === up.serialNo)
+          );
+          if (match) {
+            up.stockId = match.stockId;
+          }
+        }
+        return up;
+      });
+
+      // Validate that all products now have valid stockId
+      const missingStockId = updatedProducts.find(p => !p.stockId);
+      if (missingStockId) {
+        return res.status(400).json({ error: 'Each product must have a valid stockId' });
+      }
+
+      // Ensure all quantities are 1
       if (!updatedProducts.every(p => p.quantity === 1)) {
         return res.status(400).json({ error: 'Each product must have quantity = 1' });
       }
@@ -91,6 +118,7 @@ exports.updatePurchase = async (req, res) => {
     const returnedStockIds = returnedProducts.map(p => String(p.stockId));
     const updatedStockIds = updatedProducts.map(p => String(p.stockId));
 
+    // Prevent removing returned products
     for (const returned of returnedProducts) {
       if (!updatedStockIds.includes(String(returned.stockId))) {
         return res.status(400).json({
@@ -99,6 +127,7 @@ exports.updatePurchase = async (req, res) => {
       }
     }
 
+    // Prevent modifying details of returned products
     const triedToModifyReturned = updatedProducts.some(p => {
       return returnedStockIds.includes(String(p.stockId)) &&
         !returnedProducts.some(rp =>
@@ -114,6 +143,7 @@ exports.updatePurchase = async (req, res) => {
       return res.status(400).json({ error: 'Cannot modify details of returned products' });
     }
 
+    // Prevent removing or modifying sold products
     for (const sold of soldProducts) {
       if (!updatedStockIds.includes(String(sold.stockId))) {
         return res.status(400).json({
@@ -122,6 +152,7 @@ exports.updatePurchase = async (req, res) => {
       }
     }
 
+    // Revert stock for removed unsold, unreturned products
     const removedUnsold = oldPurchase.products?.filter(p =>
       !p.isSold &&
       !p.isReturn &&
@@ -132,6 +163,7 @@ exports.updatePurchase = async (req, res) => {
       await revertStock(removedUnsold);
     }
 
+    // Handle document uploads and delete old files if any
     if (req.files?.length > 0) {
       if (oldPurchase.documents?.length > 0) {
         oldPurchase.documents.forEach(doc => {
@@ -141,6 +173,7 @@ exports.updatePurchase = async (req, res) => {
       req.body.documents = req.files.map(file => `uploads/${file.filename}`);
     }
 
+    // Handle payments parsing and assign paymentRefNo
     let newPayments = [];
     if ('payments' in req.body) {
       if (typeof req.body.payments === 'string') {
@@ -165,8 +198,10 @@ exports.updatePurchase = async (req, res) => {
 
     req.body.addedBy = req.user.userId;
 
+    // Revert old payments in account balances
     await revertAccountBalances(oldPurchase.payments || [], 'purchase');
 
+    // Create stock for any new unsold products added
     const newUnsoldProducts = updatedProducts.filter(p =>
       !oldPurchase.products?.some(op => String(op.stockId) === String(p.stockId))
     );
@@ -179,6 +214,7 @@ exports.updatePurchase = async (req, res) => {
       );
     }
 
+    // Final products list = sold + returned + updated (excluding those already sold or returned)
     const finalProducts = [
       ...soldProducts,
       ...returnedProducts,
@@ -190,6 +226,7 @@ exports.updatePurchase = async (req, res) => {
 
     req.body.products = finalProducts;
 
+    // Update purchase doc
     const updatedPurchase = await Purchase.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -206,6 +243,7 @@ exports.updatePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found after update' });
     }
 
+    // Update account balances with new payments
     if (updatedPurchase.payments?.length > 0) {
       await updateAccountBalances(updatedPurchase.payments, 'purchase');
     }

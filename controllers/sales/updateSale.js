@@ -23,23 +23,57 @@ exports.updateSale = async (req, res) => {
       return res.status(404).json({ message: 'Sale not found' });
     }
 
-    // Validate businessLocation from req.body or oldSale
     const businessLocation = req.body.businessLocation || oldSale.businessLocation?.toString();
     if (!businessLocation) {
       return res.status(400).json({ error: 'businessLocation is required' });
     }
 
-    // Validate products array and stockId presence
     if (!Array.isArray(req.body.products) || req.body.products.length === 0) {
       return res.status(400).json({ error: 'At least one product required' });
     }
+
+    const resolvedProducts = [];
+
     for (const p of req.body.products) {
-      if (!p.stockId) {
-        return res.status(400).json({ error: 'Each product must have a stockId' });
+      // Check if this product exists in oldSale (means already sold before)
+      const match = (oldSale.products || []).find(old =>
+        old.stockId?.toString() === p.stockId ||
+        (
+          old.product.toString() === p.product &&
+          old.imeiNo === p.imeiNo &&
+          old.color === p.color &&
+          old.storage === p.storage
+        )
+      );
+
+      if (match && match.stockId) {
+        resolvedProducts.push({
+          ...p,
+          stockId: match.stockId,
+        });
+      } else {
+        // It's a new product, find available stock
+        const stock = await Stock.findOne({
+          product: p.product,
+          imeiNo: p.imeiNo,
+          color: p.color,
+          storage: p.storage,
+          status: 1,
+        });
+
+        if (!stock) {
+          return res.status(404).json({
+            error: `No available stock found for product ${p.product} (IMEI: ${p.imeiNo || 'N/A'})`,
+          });
+        }
+
+        resolvedProducts.push({
+          ...p,
+          stockId: stock._id,
+        });
       }
     }
 
-    // Handle documents: delete old if new uploaded
     if (req.files?.length > 0 && Array.isArray(oldSale.documents)) {
       for (const docPath of oldSale.documents) {
         try {
@@ -51,7 +85,6 @@ exports.updateSale = async (req, res) => {
       req.body.documents = req.files.map(file => path.join('uploads', file.filename));
     }
 
-    // Parse payments if sent as string or array
     let newPayments = [];
     if ('payments' in req.body) {
       if (typeof req.body.payments === 'string') {
@@ -64,7 +97,6 @@ exports.updateSale = async (req, res) => {
         newPayments = req.body.payments;
       }
 
-      // Assign new paymentRefNo and parse paidOn date and amount
       const newRefNo = await generateAutoId('SALEPYMNT');
       newPayments = newPayments.map(p => ({
         ...p,
@@ -78,34 +110,29 @@ exports.updateSale = async (req, res) => {
 
     req.body.addedBy = req.user.userId;
 
-    // Clone old payments for revert
     const oldPaymentsClone = JSON.parse(JSON.stringify(oldSale.payments || []));
 
-    // Helper to get stockId set
-    const getStockIdSet = arr => new Set(arr.map(p => p.stockId));
+    const getStockIdSet = arr => new Set(arr.map(p => p.stockId?.toString()));
 
     const oldProductIds = getStockIdSet(oldSale.products || []);
-    const newProductIds = getStockIdSet(req.body.products || []);
+    const newProductIds = getStockIdSet(resolvedProducts);
 
-    // Products to revert stock for: in old but NOT in new AND unsold
     const toRevert = (oldSale.products || []).filter(
-      p => !newProductIds.has(p.stockId) && !p.isSold
+      p => !newProductIds.has(p.stockId?.toString()) && !p.isSold
     );
 
-    // Products to consume stock for: in new but NOT in old AND unsold
-    const toConsume = (req.body.products || []).filter(
-      p => !oldProductIds.has(p.stockId) && !p.isSold
+    const toConsume = resolvedProducts.filter(
+      p => !oldProductIds.has(p.stockId?.toString()) && !p.isSold
     );
 
-    // Revert stock for removed/changed products
     if (toRevert.length > 0) await revertStock(toRevert);
 
-    // Revert old payments balances
     if (oldPaymentsClone.length > 0) {
       await revertAccountBalances(oldPaymentsClone, 'sale');
     }
 
-    // Update Sale document
+    req.body.products = resolvedProducts;
+
     const updatedSale = await Sale.findByIdAndUpdate(
       saleId,
       req.body,
@@ -122,11 +149,9 @@ exports.updateSale = async (req, res) => {
       return res.status(404).json({ message: 'Sale not found after update' });
     }
 
-    // Consume stock for new added/changed products
     if (toConsume.length > 0) {
       await consumeStock(toConsume);
 
-      // Update related Purchase product's isSold flag to true using stockId
       const stockIds = toConsume.map(p => p.stockId).filter(Boolean);
 
       if (stockIds.length > 0) {
@@ -143,7 +168,6 @@ exports.updateSale = async (req, res) => {
       }
     }
 
-    // Update new payments account balances
     if (newPayments.length > 0) {
       await updateAccountBalances(newPayments, 'sale');
     }

@@ -29,7 +29,8 @@ exports.addSale = async (req, res) => {
       } else if (Array.isArray(req.body.payments)) {
         payments = req.body.payments;
       }
-      // Generate paymentRefNo once per sale (all payments share same ref)
+
+      // Generate paymentRefNo once per sale
       const paymentRefNo = await generateAutoId('SALEPYMNT');
       payments = payments.map(p => ({
         ...p,
@@ -41,14 +42,33 @@ exports.addSale = async (req, res) => {
     // Handle uploaded files (if any)
     const filePaths = req.files?.map(file => path.join('uploads', file.filename)) || [];
 
-    // Validate products array presence & stockId presence
+    // Validate products array presence
     if (!Array.isArray(req.body.products) || req.body.products.length === 0) {
       return res.status(400).json({ error: 'At least one product required' });
     }
+
+    // Resolve stockId for each product
+    const resolvedProducts = [];
+
     for (const p of req.body.products) {
-      if (!p.stockId) {
-        return res.status(400).json({ error: 'Each product must have a stockId' });
+      const stock = await Stock.findOne({
+        product: p.product,
+        imeiNo: p.imeiNo,
+        color: p.color,
+        storage: p.storage,
+        status: 1, // only available stock
+      });
+
+      if (!stock) {
+        return res.status(404).json({
+          error: `No available stock found for product ${p.product} (IMEI: ${p.imeiNo || 'N/A'})`,
+        });
       }
+
+      resolvedProducts.push({
+        ...p,
+        stockId: stock._id,
+      });
     }
 
     // Prepare sale data
@@ -58,29 +78,28 @@ exports.addSale = async (req, res) => {
       addedBy,
       documents: filePaths,
       payments,
+      products: resolvedProducts, // ✅ with resolved stockIds
     };
 
     // Save sale first
     const sale = new Sale(saleData);
     await sale.save();
 
-    // Consume stock (mark stock items as used)
-    await consumeStock(req.body.products);
+    // Consume stock
+    await consumeStock(resolvedProducts);
 
-    // Update Purchase records to mark products as sold using stockId
-    const stockIds = req.body.products.map(p => p.stockId);
-    if (stockIds.length > 0) {
-      // Fetch stock documents including purchaseRef
-      const stocks = await Stock.find({ _id: { $in: stockIds } }).select('purchaseRef');
-      for (const stock of stocks) {
-        const purchaseId = stock.purchaseRef;
-        const stockId = stock._id;
-        if (purchaseId) {
-          await Purchase.updateOne(
-            { _id: purchaseId, 'products.stockId': stockId },
-            { $set: { 'products.$.isSold': true } }
-          );
-        }
+    // Update Purchase records to mark sold items using stockId
+    const stockIds = resolvedProducts.map(p => p.stockId);
+    const stocks = await Stock.find({ _id: { $in: stockIds } }).select('purchaseRef');
+
+    for (const stock of stocks) {
+      const purchaseId = stock.purchaseRef;
+      const stockId = stock._id;
+      if (purchaseId) {
+        await Purchase.updateOne(
+          { _id: purchaseId, 'products.stockId': stockId },
+          { $set: { 'products.$.isSold': true } }
+        );
       }
     }
 
@@ -89,7 +108,7 @@ exports.addSale = async (req, res) => {
       await updateAccountBalances(payments, 'sale');
     }
 
-    // Populate sale for response with relevant references
+    // Populate sale for response
     const populatedSale = await Sale.findById(sale._id)
       .populate('payments.account')
       .populate('addedBy', 'name _id')
@@ -98,9 +117,12 @@ exports.addSale = async (req, res) => {
       .populate('products.product')
       .populate('payments.method');
 
-    res.status(201).json({ message: 'Sale added successfully', populatedSale });
+    res.status(201).json({
+      message: 'Sale added successfully',
+      populatedSale,
+    });
   } catch (err) {
-    console.error(err);
+    console.error('Error in addSale:', err);
     res.status(500).json({ error: err.message });
   }
 };
