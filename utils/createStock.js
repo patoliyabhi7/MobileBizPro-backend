@@ -12,7 +12,6 @@ const createStock = async (products = [], purchaseId, businessLocationId) => {
     // Only validate if IMEI exists
     if (item.imeiNo) {
       const existing = await Stock.findOne({
-        product: item.product,
         imeiNo: item.imeiNo,
       });
 

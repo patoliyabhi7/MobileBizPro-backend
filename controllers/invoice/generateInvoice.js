@@ -41,9 +41,10 @@ exports.generateInvoice = async (req, res) => {
     // Calculate totals and words
     const validProducts = sale.products.filter(p => !p.isReturn); // 👈 Only non-returned products
     const totalQuantity = validProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
+    const subtotal = validProducts.reduce((sum, p) => sum + (p.lineTotal || 0), 0);
     const totalPaid = sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const paymentDue = (sale.total || 0) - totalPaid;
-    const totalInWords = capitalizeFirstChar(numberToIndianWords(Math.floor(sale.total || 0))) + ' rupees only';
+    const paymentDue = subtotal - totalPaid;
+    const totalInWords = capitalizeFirstChar(numberToIndianWords(Math.floor(subtotal))) + ' rupees only';
 
     // Prepare logo as base64 if exists
     let logoTag = `<strong>${layout.shopName || ''}</strong>`;

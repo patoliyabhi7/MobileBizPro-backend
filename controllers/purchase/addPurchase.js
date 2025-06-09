@@ -2,6 +2,7 @@ const Purchase = require('../../models/purchaseModel');
 const generateAutoId = require('../../utils/generateAutoId');
 const createStock = require('../../utils/createStock');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
+const Stock = require('../../models/stockModel');
 
 exports.addPurchase = async (req, res) => {
   try {
@@ -15,6 +16,25 @@ exports.addPurchase = async (req, res) => {
         return res.status(400).json({
           error: `Quantity for product ${productLine.product} must be exactly 1`
         });
+      }
+    }
+
+    for (const item of req.body.products) {
+      if (!item.product) {
+        throw new Error('Missing product reference in one of the stock items.');
+      }
+  
+      // Only validate if IMEI exists
+      if (item.imeiNo) {
+        const existing = await Stock.findOne({
+          imeiNo: item.imeiNo,
+        });
+  
+        if (existing && existing.status === 1) {
+          throw new Error(`Duplicate IMEI ${item.imeiNo} for product already exists and is in stock (not sold or returned).`);
+        }
+  
+        // if exists && status === 0 → allowed (second-hand logic)
       }
     }
 
@@ -59,10 +79,6 @@ exports.addPurchase = async (req, res) => {
     // Replace original products with updated ones containing stockId
     savedPurchase.products = productsWithStockIds;
     await savedPurchase.save(); // persist the stockIds to DB
-
-
-    // Save updated purchase with stockId
-    await savedPurchase.save();
 
     const populatedPurchase = await Purchase.findById(savedPurchase._id)
       .populate('supplier', 'businessName firstName lastName')

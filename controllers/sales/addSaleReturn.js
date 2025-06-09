@@ -6,8 +6,8 @@ const generateAutoId = require('../../utils/generateAutoId');
 
 exports.addSaleReturn = async (req, res) => {
   try {
-    const oldSaleId = req.params.saleId;
-    const { businessLocation, products = [], totalReturnAmount, paymentStatus = 'due' } = req.body;
+    const oldSaleId = req.params.oldSaleId;
+    const { businessLocation, products = [], totalReturnAmount } = req.body;
     const addedBy = req.user._id;
 
     if (!oldSaleId || !businessLocation || !products.length) {
@@ -88,7 +88,7 @@ exports.addSaleReturn = async (req, res) => {
         lineTotalWithGst: p.lineTotalWithGst || p.unitCost,
       })),
       totalReturnAmount,
-      paymentStatus,
+      paymentStatus: 'due',
       paymentDue: totalReturnAmount,
       returnDate,
       addedBy
@@ -119,13 +119,13 @@ exports.addSaleReturn = async (req, res) => {
         lineTotalWithGst: p.lineTotalWithGst || p.unitCost,
       })),
       total: totalReturnAmount,
-      paymentStatus,
+      paymentStatus: 'due',
       paymentDue: totalReturnAmount,
       addedBy,
       createdFromReturn: true,
       saleReturnRef: saleReturn._id,
       totalGstAmount: saleReturn.totalGstAmount || 0,
-      totalAmountWithGst: saleReturn.totalAmountWithGst || 0
+      totalAmountWithGst: saleReturn.totalReturnAmountWithGst || 0
     });
 
     res.status(201).json({

@@ -7,7 +7,7 @@ const consumeStock = require('../../utils/consumeStock');
 exports.addPurchaseReturn = async (req, res) => {
   try {
     const { oldPurchaseId } = req.params;
-    const { businessLocation, products = [], totalReturnAmount = 0 } = req.body;
+    const { businessLocation, products = [], totalReturnAmount } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(oldPurchaseId)) {
       return res.status(400).json({ error: 'Invalid Purchase ID format' });
