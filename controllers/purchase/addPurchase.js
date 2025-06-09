@@ -53,20 +53,13 @@ exports.addPurchase = async (req, res) => {
       await updateAccountBalances(payments, 'purchase');
     }
 
-    // Create stock entries for each product (assign stockId)
-    const createdStocks = await createStock(savedPurchase.products, savedPurchase._id, savedPurchase.businessLocation);
+    // Create stock entries for each product and get updated products with stockId
+    const productsWithStockIds = await createStock(savedPurchase.products, savedPurchase._id, savedPurchase.businessLocation);
 
-    // Map created stock _id back to products' stockId
-    savedPurchase.products.forEach(product => {
-      const matchedStock = createdStocks.find(
-        s =>
-          s.imeiNo === product.imeiNo &&
-          s.product.toString() === product.product.toString() &&
-          s.color === product.color &&
-          s.storage === product.storage
-      );
-      if (matchedStock) product.stockId = matchedStock._id;
-    });
+    // Replace original products with updated ones containing stockId
+    savedPurchase.products = productsWithStockIds;
+    await savedPurchase.save(); // persist the stockIds to DB
+
 
     // Save updated purchase with stockId
     await savedPurchase.save();

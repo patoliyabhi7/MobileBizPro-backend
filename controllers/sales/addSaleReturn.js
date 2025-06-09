@@ -2,6 +2,7 @@ const Sale = require('../../models/saleModel');
 const SaleReturn = require('../../models/saleReturnModel');
 const Purchase = require('../../models/purchaseModel');
 const { markStockReturnedFromSale } = require('../../utils/markStockReturn');
+const generateAutoId = require('../../utils/generateAutoId');
 
 exports.addSaleReturn = async (req, res) => {
   try {
@@ -64,10 +65,13 @@ exports.addSaleReturn = async (req, res) => {
     // Mark stock as available (status: 1)
     await markStockReturnedFromSale(matchedSaleProducts, sale._id);
 
+    const refNo = await generateAutoId('SALERET');
+
     // Create SaleReturn entry
     const saleReturn = await SaleReturn.create({
       originalSale: sale._id,
       businessLocation,
+      referenceNo: refNo,
       returnedProducts: matchedSaleProducts.map(p => ({
         product: p.product,
         stockId: p.stockId,
@@ -75,7 +79,13 @@ exports.addSaleReturn = async (req, res) => {
         color: p.color,
         storage: p.storage,
         imeiNo: p.imeiNo,
-        serialNo: p.serialNo
+        serialNo: p.serialNo,
+        quantity: 1,
+        lineTotal: p.unitCost,
+        gstApplicable: p.gstApplicable || false,
+        gstPercentage: p.gstPercentage || 18,
+        gstAmount: p.gstAmount || 0,
+        lineTotalWithGst: p.lineTotalWithGst || p.unitCost,
       })),
       totalReturnAmount,
       paymentStatus,
@@ -86,7 +96,7 @@ exports.addSaleReturn = async (req, res) => {
 
     // Create Purchase entry (with reused stockIds)
     const purchase = await Purchase.create({
-      referenceNo: `RET-SALE-${saleReturn._id}`,
+      referenceNo: refNo,
       supplier: sale.customer || null,
       purchaseDate: returnDate,
       businessLocation,
@@ -102,14 +112,20 @@ exports.addSaleReturn = async (req, res) => {
         quantity: 1,
         isSold: false,
         isReturn: true,
-        returnDate
+        returnDate,
+        gstApplicable: p.gstApplicable || false,
+        gstPercentage: p.gstPercentage || 18,
+        gstAmount: p.gstAmount || 0,
+        lineTotalWithGst: p.lineTotalWithGst || p.unitCost,
       })),
       total: totalReturnAmount,
       paymentStatus,
       paymentDue: totalReturnAmount,
       addedBy,
       createdFromReturn: true,
-      saleReturnRef: saleReturn._id
+      saleReturnRef: saleReturn._id,
+      totalGstAmount: saleReturn.totalGstAmount || 0,
+      totalAmountWithGst: saleReturn.totalAmountWithGst || 0
     });
 
     res.status(201).json({

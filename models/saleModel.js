@@ -12,7 +12,11 @@ const saleProductSchema = new mongoose.Schema({
   note: String,
   stockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Stock' },
   isReturn: { type: Boolean, default: false },
-  returnDate: { type: Date }
+  returnDate: { type: Date },
+  gstApplicable: { type: Boolean, default: false },
+  gstPercentage: { type: Number, default: 18 },
+  gstAmount: { type: Number, default: 0 },
+  lineTotalWithGst: { type: Number, default: 0 },
 });
 
 const paymentSchema = new mongoose.Schema({
@@ -46,6 +50,8 @@ const saleSchema = new mongoose.Schema({
   shippingStatus: { type: String, enum: ['shipped', 'pending', "delivered"], default: 'pending' },
   totalItems: { type: Number },
   typesOfService: String,
+  totalGstAmount: { type: Number, default: 0 },
+  totalAmountWithGst: { type: Number, default: 0 },
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });

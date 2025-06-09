@@ -13,7 +13,6 @@ exports.updatePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found or deleted' });
     }
 
-    // Block product update for sale-return purchases
     if (oldPurchase.createdFromReturn) {
       if ('products' in req.body) {
         return res.status(400).json({
@@ -22,7 +21,6 @@ exports.updatePurchase = async (req, res) => {
       }
 
       if (req.files?.length > 0) {
-        // Remove old documents
         if (oldPurchase.documents?.length > 0) {
           oldPurchase.documents.forEach(doc => {
             if (fs.existsSync(doc)) fs.unlinkSync(doc);
@@ -76,7 +74,6 @@ exports.updatePurchase = async (req, res) => {
       });
     }
 
-    // Regular purchase update
     let updatedProducts = [];
     if (req.body.products) {
       updatedProducts = typeof req.body.products === 'string'
@@ -94,7 +91,6 @@ exports.updatePurchase = async (req, res) => {
     const returnedStockIds = returnedProducts.map(p => String(p.stockId));
     const updatedStockIds = updatedProducts.map(p => String(p.stockId));
 
-    // Cannot remove returned products
     for (const returned of returnedProducts) {
       if (!updatedStockIds.includes(String(returned.stockId))) {
         return res.status(400).json({
@@ -103,7 +99,6 @@ exports.updatePurchase = async (req, res) => {
       }
     }
 
-    // Cannot modify returned product's details
     const triedToModifyReturned = updatedProducts.some(p => {
       return returnedStockIds.includes(String(p.stockId)) &&
         !returnedProducts.some(rp =>
@@ -119,7 +114,6 @@ exports.updatePurchase = async (req, res) => {
       return res.status(400).json({ error: 'Cannot modify details of returned products' });
     }
 
-    // Cannot remove or modify sold product
     for (const sold of soldProducts) {
       if (!updatedStockIds.includes(String(sold.stockId))) {
         return res.status(400).json({
@@ -128,7 +122,6 @@ exports.updatePurchase = async (req, res) => {
       }
     }
 
-    // Revert removed unsold stock (exclude sold & returned)
     const removedUnsold = oldPurchase.products?.filter(p =>
       !p.isSold &&
       !p.isReturn &&
@@ -148,7 +141,6 @@ exports.updatePurchase = async (req, res) => {
       req.body.documents = req.files.map(file => `uploads/${file.filename}`);
     }
 
-    // Handle payments update
     let newPayments = [];
     if ('payments' in req.body) {
       if (typeof req.body.payments === 'string') {
@@ -173,38 +165,20 @@ exports.updatePurchase = async (req, res) => {
 
     req.body.addedBy = req.user.userId;
 
-    // Revert old payments balances before applying new
     await revertAccountBalances(oldPurchase.payments || [], 'purchase');
 
-    // Identify newly added unsold products (no stockId or not in old purchase)
     const newUnsoldProducts = updatedProducts.filter(p =>
       !oldPurchase.products?.some(op => String(op.stockId) === String(p.stockId))
     );
 
-    // Create stock for new unsold products and assign stockId
     if (newUnsoldProducts.length > 0) {
-      const createdStocks = await createStock(
+      await createStock(
         newUnsoldProducts,
         oldPurchase._id,
         oldPurchase.businessLocation
       );
-
-      updatedProducts = updatedProducts.map(p => {
-        if (!p.stockId) {
-          const match = createdStocks.find(
-            s =>
-              s.product.toString() === p.product &&
-              s.color === p.color &&
-              s.storage === p.storage &&
-              s.serialNo === p.serialNo
-          );
-          if (match) return { ...p, stockId: match._id };
-        }
-        return p;
-      });
     }
 
-    // Merge final products: sold + returned + updated unsold
     const finalProducts = [
       ...soldProducts,
       ...returnedProducts,

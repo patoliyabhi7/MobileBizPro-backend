@@ -13,7 +13,11 @@ const purchaseProductSchema = new mongoose.Schema({
   stockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Stock' },
   isSold: { type: Boolean, default: false },
   isReturn: { type: Boolean, default: false },
-  returnDate: { type: Date }
+  returnDate: { type: Date },
+  gstApplicable: { type: Boolean, default: false },
+  gstPercentage: { type: Number, default: 18 },
+  gstAmount: { type: Number, default: 0 },
+  lineTotalWithGst: { type: Number, default: 0 }
 });
 
 const paymentSchema = new mongoose.Schema({
@@ -44,6 +48,8 @@ const purchaseSchema = new mongoose.Schema({
   addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdFromReturn: { type: Boolean, default: false },
   saleReturnRef: { type: mongoose.Schema.Types.ObjectId, ref: 'SaleReturn' },
+  totalGstAmount: { type: Number, default: 0 },
+  totalAmountWithGst: { type: Number, default: 0 },
   isDeleted: { type: Boolean, default: false },
 }, { timestamps: true });
 

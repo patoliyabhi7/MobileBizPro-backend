@@ -16,8 +16,9 @@ const stockSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'BusinessLocation',
     required: true
-  }
-  
+  },
+  gstApplicable: { type: Boolean, default: false },
+  gstPercentage: { type: Number, default: 18 },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Stock', stockSchema);

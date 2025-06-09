@@ -16,6 +16,8 @@ const createStock = async (products = [], purchaseId, businessLocationId) => {
       purchaseRef: purchaseId,
       businessLocation: businessLocationId,
       status: 1, // available
+      gstApplicable: item.gstApplicable || false,
+      gstPercentage: item.gstPercentage || 18
     });
 
     await stock.save();
