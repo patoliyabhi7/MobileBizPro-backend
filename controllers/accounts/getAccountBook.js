@@ -36,7 +36,7 @@ exports.getAccountBook = async (req, res) => {
       return res.status(400).json({ error: 'Account ID is required' });
     }
 
-    const account = await Account.findById(accountId).select('name type');
+    const account = await Account.findById(accountId).select('name account_type');
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     let runningBalance = 0;
@@ -89,23 +89,57 @@ exports.getAccountBook = async (req, res) => {
       saleReturns,
       purchaseReturns
     ] = await Promise.all([
-      Deposit.find({ ...getDateRangeMatch('dateTime', startDate, endDate, locationId), to_account: accountId }).populate('addedBy', 'name'),
-      FundTransfer.find({ ...getDateRangeMatch('dateTime', startDate, endDate, locationId), from_account: accountId }).populate('addedBy', 'name'),
-      FundTransfer.find({ ...getDateRangeMatch('dateTime', startDate, endDate, locationId), to_account: accountId }).populate('addedBy', 'name'),
-      Sale.find({ ...getDateRangeMatch('saleDate', startDate, endDate, locationId), 'payments.account': accountId }).populate('addedBy', 'name'),
-      Purchase.find({ ...getDateRangeMatch('purchaseDate', startDate, endDate, locationId), 'payments.account': accountId }).populate('addedBy', 'name'),
-      Expense.find({ ...getDateRangeMatch('transactionDate', startDate, endDate, locationId), 'payments.account': accountId }).populate('addedBy', 'name'),
-      SaleReturn.find({ ...getDateRangeMatch('returnDate', startDate, endDate, locationId), 'returnPayments.account': accountId }).populate('addedBy', 'name'),
-      PurchaseReturn.find({ ...getDateRangeMatch('returnDate', startDate, endDate, locationId), 'returnPayments.account': accountId }).populate('addedBy', 'name'),
+      Deposit.find({ 
+        ...getDateRangeMatch('dateTime', startDate, endDate, locationId), 
+        to_account: accountId 
+      }).populate('addedBy', 'name'),
+      
+      FundTransfer.find({ 
+        ...getDateRangeMatch('dateTime', startDate, endDate, locationId), 
+        from_account: accountId 
+      }).populate('addedBy', 'name').populate('to_account', 'name account_number'),
+      
+      FundTransfer.find({ 
+        ...getDateRangeMatch('dateTime', startDate, endDate, locationId), 
+        to_account: accountId 
+      }).populate('addedBy', 'name').populate('from_account', 'name account_number'),
+      
+      Sale.find({ 
+        ...getDateRangeMatch('saleDate', startDate, endDate, locationId), 
+        'payments.account': accountId 
+      }).populate('addedBy', 'name').populate('customer', 'firstName lastName'),
+      
+      Purchase.find({ 
+        ...getDateRangeMatch('purchaseDate', startDate, endDate, locationId), 
+        'payments.account': accountId 
+      }).populate('addedBy', 'name').populate('supplier', 'businessName'),
+      
+      Expense.find({ 
+        ...getDateRangeMatch('transactionDate', startDate, endDate, locationId), 
+        'payments.account': accountId 
+      }).populate('addedBy', 'name').populate('category', 'name'),
+      
+      SaleReturn.find({ 
+        ...getDateRangeMatch('returnDate', startDate, endDate, locationId), 
+        'returnPayments.account': accountId 
+      }).populate('addedBy', 'name'),
+      
+      PurchaseReturn.find({ 
+        ...getDateRangeMatch('returnDate', startDate, endDate, locationId), 
+        'returnPayments.account': accountId 
+      }).populate('addedBy', 'name'),
     ]);
 
+    // Process Deposits
     deposits.forEach(dep => {
       if (isInDateRange(dep.dateTime)) {
+        const description = `Deposit\nRef: ${dep.referenceNo || '-'}\nAdded By: ${dep.addedBy?.name || ''}`;
+        
         pushEntry({
           date: dep.dateTime,
-          description: `Deposit`,
+          description,
           method: '',
-          details: '',
+          details: dep.note || '',
           note: dep.note || '',
           addedBy: dep.addedBy,
           debit: 0,
@@ -114,13 +148,17 @@ exports.getAccountBook = async (req, res) => {
       }
     });
 
+    // Process Fund Transfers Out
     transfersOut.forEach(tr => {
       if (isInDateRange(tr.dateTime)) {
+        const toAccountName = tr.to_account?.name || tr.to_account?.account_number || 'Unknown Account';
+        const description = `Fund Transfer\nTo Account: ${toAccountName}\nRef: ${tr.referenceNo || '-'}\nAdded By: ${tr.addedBy?.name || ''}`;
+        
         pushEntry({
           date: tr.dateTime,
-          description: `Fund Transfer Sent to Account ID ${tr.to_account}`,
+          description,
           method: '',
-          details: '',
+          details: tr.note || '',
           note: tr.note || '',
           addedBy: tr.addedBy,
           debit: parseFloat(tr.amount),
@@ -129,13 +167,17 @@ exports.getAccountBook = async (req, res) => {
       }
     });
 
+    // Process Fund Transfers In
     transfersIn.forEach(tr => {
       if (isInDateRange(tr.dateTime)) {
+        const fromAccountName = tr.from_account?.name || tr.from_account?.account_number || 'Unknown Account';
+        const description = `Fund Transfer\nFrom Account: ${fromAccountName}\nRef: ${tr.referenceNo || '-'}\nAdded By: ${tr.addedBy?.name || ''}`;
+        
         pushEntry({
           date: tr.dateTime,
-          description: `Fund Transfer Received from Account ID ${tr.from_account}`,
+          description,
           method: '',
-          details: '',
+          details: tr.note || '',
           note: tr.note || '',
           addedBy: tr.addedBy,
           debit: 0,
@@ -144,16 +186,22 @@ exports.getAccountBook = async (req, res) => {
       }
     });
 
+    // Process Sales
     sales.forEach(sale => {
       sale.payments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || sale.saleDate);
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
+          const customerName = sale.customer?.firstName ? 
+            `${sale.customer.firstName} ${sale.customer.lastName || ''}`.trim() : 'N/A';
+          
+          const description = `Sale\nCustomer: ${customerName}\nInvoice No: ${sale.invoiceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${sale.addedBy?.name || ''}`;
+          
           pushEntry({
             date: paidDate,
-            description: `Sale - Invoice: ${sale.invoiceNo || ''}`,
+            description,
             method: pmt.method || '',
             details: pmt.note || '',
-            note: sale.note || sale.additionalNotes || '',
+            note: sale.additionalNotes || sale.staffNote || '',
             addedBy: sale.addedBy,
             debit: 0,
             credit: parseFloat(pmt.amount || 0)
@@ -162,16 +210,21 @@ exports.getAccountBook = async (req, res) => {
       });
     });
 
+    // Process Purchases
     purchases.forEach(pur => {
       pur.payments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || pur.purchaseDate);
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
+          const supplierName = pur.supplier?.businessName || 'N/A';
+          
+          const description = `Purchase\nSupplier: ${supplierName}\nReference No: ${pur.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${pur.addedBy?.name || ''}`;
+          
           pushEntry({
             date: paidDate,
-            description: `Purchase - Ref: ${pur.referenceNo || ''}`,
+            description,
             method: pmt.method || '',
             details: pmt.note || '',
-            note: pur.note || pur.additionalNotes || '',
+            note: pur.additionalNotes || '',
             addedBy: pur.addedBy,
             debit: parseFloat(pmt.amount || 0),
             credit: 0
@@ -180,16 +233,19 @@ exports.getAccountBook = async (req, res) => {
       });
     });
 
+    // Process Expenses
     expenses.forEach(exp => {
       exp.payments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || exp.transactionDate);
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
+          const description = `Expense\nCategory: ${exp.category?.name || 'General'}\nReference No: ${exp.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${exp.addedBy?.name || ''}`;
+          
           pushEntry({
             date: paidDate,
-            description: `Expense - Ref: ${exp.referenceNo || ''}`,
+            description,
             method: pmt.method || '',
             details: pmt.note || '',
-            note: exp.note || exp.additionalNotes || '',
+            note: exp.additionalNotes || '',
             addedBy: exp.addedBy,
             debit: parseFloat(pmt.amount || 0),
             credit: 0
@@ -198,13 +254,16 @@ exports.getAccountBook = async (req, res) => {
       });
     });
 
+    // Process Sale Returns
     saleReturns.forEach(ret => {
       ret.returnPayments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || ret.returnDate);
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
+          const description = `Sale Return\nRef: ${ret.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${ret.addedBy?.name || ''}`;
+          
           pushEntry({
             date: paidDate,
-            description: `Sale Return - Ref: ${ret.referenceNo || ''}`,
+            description,
             method: pmt.method || '',
             details: pmt.note || '',
             note: '',
@@ -216,13 +275,16 @@ exports.getAccountBook = async (req, res) => {
       });
     });
 
+    // Process Purchase Returns
     purchaseReturns.forEach(ret => {
       ret.returnPayments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || ret.returnDate);
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
+          const description = `Purchase Return\nRef: ${ret.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${ret.addedBy?.name || ''}`;
+          
           pushEntry({
             date: paidDate,
-            description: `Purchase Return - Ref: ${ret.referenceNo || ''}`,
+            description,
             method: pmt.method || '',
             details: pmt.note || '',
             note: '',
@@ -234,15 +296,26 @@ exports.getAccountBook = async (req, res) => {
       });
     });
 
+    // Sort entries by date (newest first)
     entries.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Calculate opening balance (balance of first entry minus its transaction amount)
+    const openingBalance = entries.length > 0
+      ? parseFloat(entries[entries.length - 1].balance) - 
+        (parseFloat(entries[entries.length - 1].credit || 0) - parseFloat(entries[entries.length - 1].debit || 0))
+      : 0;
 
     return res.status(200).json({
       accountId,
       accountName: account.name,
-      accountType: account.type,
+      accountType: account.account_type,
+      openingBalance: openingBalance.toFixed(2),
       totalDebit: totalDebit.toFixed(2),
       totalCredit: totalCredit.toFixed(2),
       closingBalance: runningBalance.toFixed(2),
+      startDate,
+      endDate,
+      locationId: locationId || 'All locations',
       entries
     });
   } catch (err) {
@@ -250,4 +323,3 @@ exports.getAccountBook = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
