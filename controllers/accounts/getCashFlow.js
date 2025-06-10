@@ -23,11 +23,11 @@ exports.getCashFlow = async (req, res) => {
     };
 
     const [deposits, transfersOut, transfersIn, sales, purchases, expenses, saleReturns, purchaseReturns] = await Promise.all([
-      Deposit.find(account_id ? { to_account: account_id } : {}).populate('to_account'),
-      FundTransfer.find(account_id ? { from_account: account_id } : {}).populate('from_account to_account'),
-      FundTransfer.find(account_id ? { to_account: account_id } : {}).populate('from_account to_account'),
-      Sale.find(location_id ? { businessLocation: location_id, status: { $ne: 'return' } } : { status: { $ne: 'return' } }).populate('addedBy customer payments.account payments.method'),
-      Purchase.find(location_id ? { businessLocation: location_id, status: { $ne: 'return' } } : { status: { $ne: 'return' } }).populate('addedBy supplier payments.account payments.method'),
+      Deposit.find(location_id ? { businessLocation: location_id } : {}).populate('to_account'),
+      FundTransfer.find(location_id ? { businessLocation: location_id } : {}).populate('from_account to_account'),
+      FundTransfer.find(location_id ? { businessLocation: location_id } : {}).populate('from_account to_account'),
+      Sale.find(location_id ? { businessLocation: location_id } : {}).populate('addedBy customer payments.account payments.method'),
+      Purchase.find(location_id ? { businessLocation: location_id} : {}).populate('addedBy supplier payments.account payments.method'),
       Expense.find(location_id ? { businessLocation: location_id } : {}).populate('payments.account payments.method category'),
       SaleReturn.find(location_id ? { businessLocation: location_id } : {}).populate('addedBy returnPayments.account returnPayments.method originalSale'),
       PurchaseReturn.find(location_id ? { businessLocation: location_id } : {}).populate('addedBy returnPayments.account returnPayments.method originalPurchase'),
