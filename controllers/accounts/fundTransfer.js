@@ -1,5 +1,6 @@
 const FundTransfer = require('../../models/fundTransferModel');
 const Account = require('../../models/accountModel');
+const generateAutoId = require('../../utils/generateAutoId');
 
 exports.fundTransfer = async (req, res) => {
   try {
@@ -25,6 +26,7 @@ exports.fundTransfer = async (req, res) => {
       to_account,
       amount,
       note,
+      referenceNo: await generateAutoId('FT'),
       addedBy,
       businessLocation,
       dateTime: dateTime || new Date(),

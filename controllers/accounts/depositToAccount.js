@@ -1,5 +1,6 @@
 const Deposit = require('../../models/depositModel');
 const Account = require('../../models/accountModel');
+const generateAutoId = require('../../utils/generateAutoId');
 
 exports.depositToAccount = async (req, res) => {
   try {
@@ -14,6 +15,7 @@ exports.depositToAccount = async (req, res) => {
       to_account,
       amount,
       note,
+      referenceNo: await generateAutoId('DEP'),
       addedBy,
       businessLocation,
       dateTime: dateTime || new Date(),
