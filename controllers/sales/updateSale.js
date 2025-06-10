@@ -44,37 +44,21 @@ exports.updateSale = async (req, res) => {
           old.storage === p.storage
         )
       );
-    
+
       if (match && match.stockId) {
         resolvedProducts.push({
           ...p,
           stockId: match.stockId,
-          isReturn: match.isReturn === true, // Preserve isReturn if it was previously returned
+          isReturn: match.isReturn === true,
         });
       } else {
-        const stock = await Stock.findOne({
-          product: p.product,
-          imeiNo: p.imeiNo,
-          color: p.color,
-          storage: p.storage,
-          status: 1,
-        });
-    
-        if (!stock) {
-          return res.status(404).json({
-            error: `No available stock found for product ${p.product} (IMEI: ${p.imeiNo || 'N/A'})`,
-          });
-        }
-    
-        resolvedProducts.push({
-          ...p,
-          stockId: stock._id,
-          isReturn: false, // Explicitly mark new entries as non-returned
+        return res.status(400).json({
+          error: `Product not found in original sale: IMEI ${p.imeiNo || 'N/A'}`,
         });
       }
     }
-    
 
+    // Handle document replacement
     if (req.files?.length > 0 && Array.isArray(oldSale.documents)) {
       for (const docPath of oldSale.documents) {
         try {
@@ -86,6 +70,7 @@ exports.updateSale = async (req, res) => {
       req.body.documents = req.files.map(file => path.join('uploads', file.filename));
     }
 
+    // Handle payment parsing
     let newPayments = [];
     if ('payments' in req.body) {
       if (typeof req.body.payments === 'string') {
@@ -99,12 +84,18 @@ exports.updateSale = async (req, res) => {
       }
 
       const newRefNo = await generateAutoId('SALEPYMNT');
-      newPayments = newPayments.map(p => ({
-        ...p,
-        paidOn: new Date(p.paidOn),
-        paymentRefNo: newRefNo,
-        amount: Number(p.amount || 0),
-      }));
+      newPayments = newPayments.map(p => {
+        if (!p.method || !p.account) {
+          throw new Error('Each payment must include valid method and account ObjectIds.');
+        }
+
+        return {
+          ...p,
+          paidOn: new Date(p.paidOn),
+          paymentRefNo: newRefNo,
+          amount: Number(p.amount || 0),
+        };
+      });
 
       req.body.payments = newPayments;
     }
@@ -114,7 +105,6 @@ exports.updateSale = async (req, res) => {
     const oldPaymentsClone = JSON.parse(JSON.stringify(oldSale.payments || []));
 
     const getStockIdSet = arr => new Set(arr.map(p => p.stockId?.toString()));
-
     const oldProductIds = getStockIdSet(oldSale.products || []);
     const newProductIds = getStockIdSet(resolvedProducts);
 
@@ -134,11 +124,7 @@ exports.updateSale = async (req, res) => {
 
     req.body.products = resolvedProducts;
 
-    const updatedSale = await Sale.findByIdAndUpdate(
-      saleId,
-      req.body,
-      { new: true }
-    )
+    const updatedSale = await Sale.findByIdAndUpdate(saleId, req.body, { new: true })
       .populate('customer')
       .populate('businessLocation')
       .populate('addedBy', 'name _id')
