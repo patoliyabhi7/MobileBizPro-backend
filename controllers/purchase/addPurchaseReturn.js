@@ -7,7 +7,13 @@ const consumeStock = require('../../utils/consumeStock');
 exports.addPurchaseReturn = async (req, res) => {
   try {
     const { oldPurchaseId } = req.params;
-    const { businessLocation, products = [], totalReturnAmount } = req.body;
+    const {
+      businessLocation,
+      products = [],
+      totalReturnAmount,
+      totalGstAmount,
+      totalReturnAmountWithGst
+    } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(oldPurchaseId)) {
       return res.status(400).json({ error: 'Invalid Purchase ID format' });
@@ -29,45 +35,41 @@ exports.addPurchaseReturn = async (req, res) => {
     const returnedProducts = [];
 
     for (let item of products) {
-      const { productId, unitCost } = item;
-    
       const matchedProduct = purchase.products.find(
-        p =>
-          p.product.toString() === productId &&
-          !p.isReturn // ✅ We only allow not-yet-returned items
+        p => p.product.toString() === item.productId && !p.isReturn
       );
-    
+
       if (!matchedProduct) {
         return res.status(400).json({
-          error: `Product with ID ${productId} not found or already returned.`
+          error: `Product with ID ${item.productId} not found or already returned.`
         });
       }
-    
+
       if (matchedProduct.isSold) {
         return res.status(400).json({
-          error: `Product with ID ${productId} is already sold and cannot be returned.`
+          error: `Product with ID ${item.productId} is already sold and cannot be returned.`
         });
       }
-    
+
       matchedProduct.isReturn = true;
       matchedProduct.returnDate = new Date();
-    
+
       returnedProducts.push({
         product: matchedProduct.product,
         imeiNo: matchedProduct.imeiNo,
+        serialNo: matchedProduct.serialNo,
         color: matchedProduct.color,
         storage: matchedProduct.storage,
-        unitCost: unitCost,
-        lineTotal: unitCost,
+        unitCost: item.unitCost ?? 0,
+        lineTotal: item.lineTotal ?? item.unitCost ?? 0,
         quantity: 1,
-        gstApplicable: matchedProduct.gstApplicable || false,
-        gstPercentage: matchedProduct.gstPercentage || 18,
-        gstAmount: matchedProduct.gstAmount || 0,
-        lineTotalWithGst: matchedProduct.lineTotalWithGst || 0,
-        serialNo: matchedProduct.serialNo,
-        note: ''
+        gstApplicable: item.gstApplicable ?? false,
+        gstPercentage: item.gstPercentage ?? 18,
+        gstAmount: item.gstAmount ?? 0,
+        lineTotalWithGst: item.lineTotalWithGst ?? item.unitCost ?? 0,
+        note: item.note || ''
       });
-    }    
+    }
 
     await purchase.save();
 
@@ -83,8 +85,10 @@ exports.addPurchaseReturn = async (req, res) => {
       referenceNo: await generateAutoId('PURRET'),
       returnedProducts,
       totalReturnAmount,
+      totalGstAmount,
+      totalReturnAmountWithGst,
       paymentStatus: 'due',
-      paymentDue: totalReturnAmount,
+      paymentDue: totalReturnAmountWithGst,
       returnPayments: [],
       returnDate: new Date(),
       addedBy: req.user?._id
