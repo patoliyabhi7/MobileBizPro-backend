@@ -36,12 +36,9 @@ exports.getAccountBook = async (req, res) => {
       return res.status(400).json({ error: 'Account ID is required' });
     }
 
-    const account = await Account.findById(accountId).select('name account_type');
+    const account = await Account.findById(accountId).select('name account_type balance');
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
-    let runningBalance = 0;
-    let totalDebit = 0;
-    let totalCredit = 0;
     const entries = [];
 
     const formatUser = (user) => ({
@@ -56,16 +53,8 @@ exports.getAccountBook = async (req, res) => {
       return (!start || d >= start) && (!end || d <= end);
     };
 
+    // Modified pushEntry - NO balance calculation here, just collect entries
     const pushEntry = ({ date, description, method, details, note, addedBy, debit, credit }) => {
-      if (credit) {
-        runningBalance += credit;
-        totalCredit += credit;
-      }
-      if (debit) {
-        runningBalance -= debit;
-        totalDebit += debit;
-      }
-
       entries.push({
         date,
         description,
@@ -73,9 +62,9 @@ exports.getAccountBook = async (req, res) => {
         paymentDetails: details || '',
         note: note || '',
         addedBy: formatUser(addedBy),
-        debit: debit ? debit.toFixed(2) : '',
-        credit: credit ? credit.toFixed(2) : '',
-        balance: runningBalance.toFixed(2),
+        debit: parseFloat(debit || 0),
+        credit: parseFloat(credit || 0),
+        // No balance calculation here - will be done later
       });
     };
 
@@ -107,27 +96,35 @@ exports.getAccountBook = async (req, res) => {
       Sale.find({ 
         ...getDateRangeMatch('saleDate', startDate, endDate, locationId), 
         'payments.account': accountId 
-      }).populate('addedBy', 'name').populate('customer', 'firstName lastName'),
+      }).populate('addedBy', 'name')
+        .populate('customer', 'firstName lastName')
+        .populate('payments.method', 'name'),
       
       Purchase.find({ 
         ...getDateRangeMatch('purchaseDate', startDate, endDate, locationId), 
         'payments.account': accountId 
-      }).populate('addedBy', 'name').populate('supplier', 'businessName'),
+      }).populate('addedBy', 'name')
+        .populate('supplier', 'businessName')
+        .populate('payments.method', 'name'),
       
       Expense.find({ 
         ...getDateRangeMatch('transactionDate', startDate, endDate, locationId), 
         'payments.account': accountId 
-      }).populate('addedBy', 'name').populate('category', 'name'),
+      }).populate('addedBy', 'name')
+        .populate('category', 'name')
+        .populate('payments.method', 'name'),
       
       SaleReturn.find({ 
         ...getDateRangeMatch('returnDate', startDate, endDate, locationId), 
         'returnPayments.account': accountId 
-      }).populate('addedBy', 'name'),
+      }).populate('addedBy', 'name')
+        .populate('returnPayments.method', 'name'),
       
       PurchaseReturn.find({ 
         ...getDateRangeMatch('returnDate', startDate, endDate, locationId), 
         'returnPayments.account': accountId 
-      }).populate('addedBy', 'name'),
+      }).populate('addedBy', 'name')
+        .populate('returnPayments.method', 'name'),
     ]);
 
     // Process Deposits
@@ -196,10 +193,13 @@ exports.getAccountBook = async (req, res) => {
           
           const description = `Sale\nCustomer: ${customerName}\nInvoice No: ${sale.invoiceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${sale.addedBy?.name || ''}`;
           
+          // Handle different method structures
+          const methodName = pmt.method?.name || pmt.method || '';
+          
           pushEntry({
             date: paidDate,
             description,
-            method: pmt.method || '',
+            method: methodName,
             details: pmt.note || '',
             note: sale.additionalNotes || sale.staffNote || '',
             addedBy: sale.addedBy,
@@ -219,10 +219,13 @@ exports.getAccountBook = async (req, res) => {
           
           const description = `Purchase\nSupplier: ${supplierName}\nReference No: ${pur.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${pur.addedBy?.name || ''}`;
           
+          // Handle different method structures
+          const methodName = pmt.method?.name || pmt.method || '';
+          
           pushEntry({
             date: paidDate,
             description,
-            method: pmt.method || '',
+            method: methodName,
             details: pmt.note || '',
             note: pur.additionalNotes || '',
             addedBy: pur.addedBy,
@@ -240,10 +243,13 @@ exports.getAccountBook = async (req, res) => {
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
           const description = `Expense\nCategory: ${exp.category?.name || 'General'}\nReference No: ${exp.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${exp.addedBy?.name || ''}`;
           
+          // Handle different method structures
+          const methodName = pmt.method?.name || pmt.method || '';
+          
           pushEntry({
             date: paidDate,
             description,
-            method: pmt.method || '',
+            method: methodName,
             details: pmt.note || '',
             note: exp.additionalNotes || '',
             addedBy: exp.addedBy,
@@ -261,10 +267,13 @@ exports.getAccountBook = async (req, res) => {
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
           const description = `Sale Return\nRef: ${ret.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${ret.addedBy?.name || ''}`;
           
+          // Handle different method structures
+          const methodName = pmt.method?.name || pmt.method || '';
+          
           pushEntry({
             date: paidDate,
             description,
-            method: pmt.method || '',
+            method: methodName,
             details: pmt.note || '',
             note: '',
             addedBy: ret.addedBy,
@@ -282,10 +291,13 @@ exports.getAccountBook = async (req, res) => {
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
           const description = `Purchase Return\nRef: ${ret.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${ret.addedBy?.name || ''}`;
           
+          // Handle different method structures
+          const methodName = pmt.method?.name || pmt.method || '';
+          
           pushEntry({
             date: paidDate,
             description,
-            method: pmt.method || '',
+            method: methodName,
             details: pmt.note || '',
             note: '',
             addedBy: ret.addedBy,
@@ -296,14 +308,37 @@ exports.getAccountBook = async (req, res) => {
       });
     });
 
-    // Sort entries by date (newest first)
-    entries.sort((a, b) => new Date(b.date) - new Date(a.date));
+    // STEP 1: Sort entries chronologically (oldest first)
+    entries.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // Calculate opening balance (balance of first entry minus its transaction amount)
-    const openingBalance = entries.length > 0
-      ? parseFloat(entries[entries.length - 1].balance) - 
-        (parseFloat(entries[entries.length - 1].credit || 0) - parseFloat(entries[entries.length - 1].debit || 0))
+    // STEP 2: Calculate running balance in chronological order
+    let runningBalance = 0; // Starting balance - you might want to get this from account.balance or calculate it
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    entries.forEach(entry => {
+      // Update totals
+      totalCredit += entry.credit;
+      totalDebit += entry.debit;
+      
+      // Calculate new running balance
+      runningBalance += entry.credit - entry.debit;
+      
+      // Store the balance after this transaction
+      entry.balance = runningBalance.toFixed(2);
+      
+      // Format the amounts for display
+      entry.debit = entry.debit ? entry.debit.toFixed(2) : '';
+      entry.credit = entry.credit ? entry.credit.toFixed(2) : '';
+    });
+
+    // Calculate opening balance (balance before first transaction)
+    const openingBalance = entries.length > 0 
+      ? runningBalance - (totalCredit - totalDebit)
       : 0;
+
+    // STEP 3: Sort entries by date (newest first) for display
+    entries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     return res.status(200).json({
       accountId,
@@ -313,6 +348,7 @@ exports.getAccountBook = async (req, res) => {
       totalDebit: totalDebit.toFixed(2),
       totalCredit: totalCredit.toFixed(2),
       closingBalance: runningBalance.toFixed(2),
+      accountBalance: account.balance ? account.balance.toFixed(2) : '0.00',
       startDate,
       endDate,
       locationId: locationId || 'All locations',
