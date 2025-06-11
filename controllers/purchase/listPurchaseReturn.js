@@ -30,10 +30,29 @@ exports.listPurchaseReturns = async (req, res) => {
       referenceNo: ret.referenceNo,
       parentPurchase: ret.originalPurchase?.referenceNo || '—',
       location: ret.businessLocation?.name || '—',
-      supplier: ret.originalPurchase?.supplier?.firstName + ' ' + ret.originalPurchase?.supplier?.lastName || '—',
+      supplier: ret.originalPurchase?.supplier
+        ? `${ret.originalPurchase.supplier.firstName} ${ret.originalPurchase.supplier.lastName}`
+        : '—',
       paymentStatus: ret.paymentStatus || 'due',
       grandTotal: ret.totalReturnAmount,
-      paymentDue: ret.paymentDue || ret.totalReturnAmount
+      totalGstAmount: ret.totalGstAmount || 0,
+      totalReturnAmountWithGst: ret.totalReturnAmountWithGst || 0,
+      paymentDue: ret.paymentDue || ret.totalReturnAmount,
+      returnedProducts: ret.returnedProducts.map(prod => ({
+        productName: prod.product?.productName || '—',
+        serialNo: prod.serialNo || '',
+        imeiNo: prod.imeiNo || '',
+        color: prod.color || '',
+        storage: prod.storage || '',
+        quantity: prod.quantity || 0,
+        unitCost: prod.unitCost || 0,
+        lineTotal: prod.lineTotal || 0,
+        gstApplicable: prod.gstApplicable || false,
+        gstPercentage: prod.gstPercentage || 0,
+        gstAmount: prod.gstAmount || 0,
+        lineTotalWithGst: prod.lineTotalWithGst || 0,
+        note: prod.note || '',
+      }))
     }));
 
     res.status(200).json(formatted);
@@ -41,4 +60,3 @@ exports.listPurchaseReturns = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-

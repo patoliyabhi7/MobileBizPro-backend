@@ -11,7 +11,7 @@ exports.listSaleReturns = async (req, res) => {
 
     const locationId = new mongoose.Types.ObjectId(rawLocationId);
 
-    const saleReturns = await SaleReturn.find({ businessLocation: locationId })
+    const saleReturns = await SaleReturn.find({ businessLocation: locationId, isDeleted: false })
       .populate({
         path: 'originalSale',
         select: 'invoiceNo customer',
@@ -29,11 +29,29 @@ exports.listSaleReturns = async (req, res) => {
       date: sr.returnDate,
       invoiceNo: sr.referenceNo,
       parentSale: sr.originalSale?.invoiceNo || '—',
-      customerName: sr.originalSale?.customer?.firstName + ' ' + sr.originalSale?.customer?.lastName || '—',
+      customerName: sr.originalSale?.customer
+        ? `${sr.originalSale.customer.firstName} ${sr.originalSale.customer.lastName}`
+        : '—',
       location: sr.businessLocation?.name || '—',
       paymentStatus: sr.paymentStatus || 'due',
       totalAmount: sr.totalReturnAmount,
-      paymentDue: sr.paymentDue || sr.totalReturnAmount
+      totalAmountWithGst: sr.totalReturnAmountWithGst,
+      paymentDue: sr.paymentDue || sr.totalReturnAmount,
+      returnedProducts: (sr.returnedProducts || []).map(prod => ({
+        productName: prod.product?.productName || '—',
+        serialNo: prod.serialNo || '',
+        imeiNo: prod.imeiNo || '',
+        color: prod.color || '',
+        storage: prod.storage || '',
+        quantity: prod.quantity || 0,
+        unitCost: prod.unitCost || 0,
+        lineTotal: prod.lineTotal || 0,
+        gstApplicable: prod.gstApplicable || false,
+        gstPercentage: prod.gstPercentage || 0,
+        gstAmount: prod.gstAmount || 0,
+        lineTotalWithGst: prod.lineTotalWithGst || 0,
+        note: prod.note || '',
+      }))
     }));
 
     res.status(200).json(formatted);
@@ -41,4 +59,3 @@ exports.listSaleReturns = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
