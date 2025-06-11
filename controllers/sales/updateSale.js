@@ -36,29 +36,20 @@ exports.updateSale = async (req, res) => {
 
     for (const p of req.body.products) {
       const match = (oldSale.products || []).find(old =>
-        old.stockId?.toString() === p.stockId ||
-        (
-          old.product.toString() === p.product &&
-          old.imeiNo === p.imeiNo &&
-          old.color === p.color &&
-          old.storage === p.storage
-        )
+        old.product.toString() === p.product?.toString() &&
+        old.imeiNo === p.imeiNo &&
+        old.color === p.color &&
+        old.storage === p.storage
       );
 
-      if (match && match.stockId) {
-        resolvedProducts.push({
-          ...p,
-          stockId: match.stockId,
-          isReturn: match.isReturn === true,
-        });
-      } else {
-        return res.status(400).json({
-          error: `Product not found in original sale: IMEI ${p.imeiNo || 'N/A'}`,
-        });
-      }
+      resolvedProducts.push({
+        ...p,
+        stockId: match?.stockId || null,
+        isReturn: match?.isReturn === true,
+      });
     }
 
-    // Handle document replacement
+    // Replace documents
     if (req.files?.length > 0 && Array.isArray(oldSale.documents)) {
       for (const docPath of oldSale.documents) {
         try {
@@ -70,7 +61,7 @@ exports.updateSale = async (req, res) => {
       req.body.documents = req.files.map(file => path.join('uploads', file.filename));
     }
 
-    // Handle payment parsing
+    // Parse payments
     let newPayments = [];
     if ('payments' in req.body) {
       if (typeof req.body.payments === 'string') {
