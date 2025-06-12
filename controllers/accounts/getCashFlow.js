@@ -38,7 +38,7 @@ exports.getCashFlow = async (req, res) => {
 
     const entries = [];
 
-    const pushEntry = ({ date, description, method, details, debit, credit, accountId, accountName, isInternal = false }) => {
+    const pushEntry = ({ date, description, method, details, debit, credit, accountId, accountName, isInternal = false, excludeFromTotals = false }) => {
       if (!isInRange(date)) return;
       const transaction_type = credit > 0 ? 'credit' : 'debit';
       if (account_type && transaction_type !== account_type) return;
@@ -54,6 +54,7 @@ exports.getCashFlow = async (req, res) => {
         credit: parseFloat(credit || 0),
         transaction_type,
         isInternal,
+        excludeFromTotals, // New flag to exclude from total calculations
         balance: 0, // Will be calculated later
       });
     };
@@ -74,14 +75,16 @@ exports.getCashFlow = async (req, res) => {
       }
     });
 
-    // Fund Transfers
+    // Fund Transfers - FIXED LOGIC
     fundTransfers.forEach(tr => {
       const fromAccId = tr.from_account?._id?.toString();
       const toAccId = tr.to_account?._id?.toString();
       const fromAccName = tr.from_account?.name || tr.from_account?.accountNumber || 'N/A';
       const toAccName = tr.to_account?.name || tr.to_account?.accountNumber || 'N/A';
-
+    
       if (account_id) {
+        // When filtering by specific account, show fund transfers normally
+        // Show transfer IN (credit) when money comes to selected account
         if (toAccId === account_id) {
           pushEntry({
             date: tr.dateTime,
@@ -92,8 +95,13 @@ exports.getCashFlow = async (req, res) => {
             debit: 0,
             accountId: toAccId,
             accountName: toAccName,
+            isInternal: false,
+            excludeFromTotals: false,
           });
-        } else if (fromAccId === account_id) {
+        }
+        
+        // Show transfer OUT (debit) when money goes from selected account
+        if (fromAccId === account_id) {
           pushEntry({
             date: tr.dateTime,
             description: `Fund Transfer Sent to A/C ${toAccName}\nRef: ${tr.referenceNo || '-'}`,
@@ -103,9 +111,15 @@ exports.getCashFlow = async (req, res) => {
             debit: parseFloat(tr.amount),
             accountId: fromAccId,
             accountName: fromAccName,
+            isInternal: false,
+            excludeFromTotals: false,
           });
         }
       } else {
+        // When showing all accounts, mark fund transfers to exclude from totals
+        // but still show them in the report for transparency
+        
+        // Credit entry (money received)
         pushEntry({
           date: tr.dateTime,
           description: `Fund Transfer Received from A/C ${fromAccName}\nRef: ${tr.referenceNo || '-'}`,
@@ -116,7 +130,10 @@ exports.getCashFlow = async (req, res) => {
           accountId: toAccId,
           accountName: toAccName,
           isInternal: true,
+          excludeFromTotals: true, // Exclude from total credit/debit calculations
         });
+        
+        // Debit entry (money sent)
         pushEntry({
           date: tr.dateTime,
           description: `Fund Transfer Sent to A/C ${toAccName}\nRef: ${tr.referenceNo || '-'}`,
@@ -127,6 +144,7 @@ exports.getCashFlow = async (req, res) => {
           accountId: fromAccId,
           accountName: fromAccName,
           isInternal: true,
+          excludeFromTotals: true, // Exclude from total credit/debit calculations
         });
       }
     });
@@ -269,18 +287,26 @@ exports.getCashFlow = async (req, res) => {
       }
       
       // Calculate new running balance
-      accountRunningBalances[accId] += entry.credit - entry.debit;
+      // For individual account view, include all transactions
+      // For all accounts view, exclude internal fund transfers from running balance
+      if (account_id || !entry.excludeFromTotals) {
+        accountRunningBalances[accId] += entry.credit - entry.debit;
+      }
       
       // Store the balance after this transaction
       entry.balance = parseFloat(accountRunningBalances[accId].toFixed(2));
     });
 
+    // Calculate totals - EXCLUDE fund transfers when viewing all accounts
     let totalCredit = 0;
     let totalDebit = 0;
 
     entries.forEach((entry) => {
-      totalCredit += entry.credit;
-      totalDebit += entry.debit;
+      // Only include in totals if not marked as excludeFromTotals
+      if (!entry.excludeFromTotals) {
+        totalCredit += entry.credit;
+        totalDebit += entry.debit;
+      }
     });
 
     // Determine opening and closing balances
@@ -298,11 +324,15 @@ exports.getCashFlow = async (req, res) => {
     // Sort final entries for response (descending by date)
     entries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
+    // Filter final entries
     const finalEntries = entries.filter(entry => {
       if (account_id) {
+        // When filtering by account, show all entries for that account
         return entry.accountId === account_id;
       }
-      return !entry.isInternal;
+      // When showing all accounts, show all entries (including internal transfers for transparency)
+      // The excludeFromTotals flag handles the balance calculation issue
+      return true;
     });
 
     res.status(200).json({
