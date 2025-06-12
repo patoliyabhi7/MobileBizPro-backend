@@ -2,16 +2,19 @@ const Stock = require('../models/stockModel');
 
 const markStockReturnedFromSale = async (products = []) => {
   for (const item of products) {
-    const stockId = item.stockId;
-    const quantityToRevert = item.quantity || 1;
-
+    const { stockId, quantity = 1 } = item;
     if (!stockId) continue;
 
     const stockItem = await Stock.findById(stockId);
-    if (stockItem) {
-      stockItem.quantity += quantityToRevert;
-      await stockItem.save();
+    if (!stockItem) continue;
+
+    if (stockItem.imeiNo) {
+      stockItem.status = 1;
+    } else {
+      stockItem.quantity += quantity;
     }
+
+    await stockItem.save();
   }
 };
 

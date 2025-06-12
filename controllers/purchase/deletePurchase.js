@@ -9,16 +9,20 @@ exports.deletePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found or already deleted' });
     }
 
-    // Revert payments from account balances
+    // Revert payments
     await revertAccountBalances(purchase.payments || [], 'purchase');
 
-    // Remove stock only if not sold or returned
-    const stockToConsume = purchase.products?.filter(p =>
-      !p.isSold && !p.isReturn && p.stockId
-    ).map(p => ({
-      stockId: p.stockId,
-      quantity: p.quantity || 1
-    })) || [];
+    // Consume stock (only unsold and unreturned products)
+    const stockToConsume = [];
+
+    for (const item of purchase.products) {
+      if (!item.isReturn && item.stockId) {
+        stockToConsume.push({
+          stockId: item.stockId,
+          quantity: item.quantity || 1
+        });
+      }
+    }
 
     if (stockToConsume.length > 0) {
       await consumeStock(stockToConsume);
@@ -27,7 +31,7 @@ exports.deletePurchase = async (req, res) => {
     purchase.isDeleted = true;
     await purchase.save();
 
-    res.status(200).json({ message: 'Purchase soft deleted and stock/payment reverted' });
+    res.status(200).json({ message: 'Purchase soft deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -112,7 +112,7 @@ exports.updatePurchase = async (req, res) => {
             _id: { $ne: item.stockId } // Exclude current stock item
           });
 
-          if (existingIMEI && existingIMEI.quantity > 0) {
+          if (existingIMEI && existingIMEI.status === 1) {
             throw new Error(`Duplicate IMEI ${item.imeiNo} already exists in another stock item.`);
           }
         }
@@ -147,18 +147,41 @@ exports.updatePurchase = async (req, res) => {
       }
     }
 
-    const soldProducts = oldPurchase.products?.filter(p => p.isSold) || [];
+    // Check stock status for restrictions
+    const stockIds = oldPurchase.products?.map(p => p.stockId).filter(Boolean) || [];
+    const stocks = await Stock.find({ _id: { $in: stockIds } });
+    
     const returnedProducts = oldPurchase.products?.filter(p => p.isReturn) || [];
-
     const returnedStockIds = returnedProducts.map(p => String(p.stockId));
     const updatedStockIds = updatedProducts.map(p => String(p.stockId));
 
-    // Prevent removing returned products
-    for (const returned of returnedProducts) {
-      if (!updatedStockIds.includes(String(returned.stockId))) {
+    // Check for sold/returned products and apply restrictions
+    for (const product of oldPurchase.products || []) {
+      const stock = stocks.find(s => String(s._id) === String(product.stockId));
+      
+      // If product is returned, prevent removal
+      if (product.isReturn && !updatedStockIds.includes(String(product.stockId))) {
         return res.status(400).json({
-          error: `Cannot remove returned product with stock ID: ${returned.stockId}`
+          error: `Cannot remove returned product with stock ID: ${product.stockId}`
         });
+      }
+
+      // If stock is mobile and sold (status = 0), prevent removal/modification
+      if (stock?.imeiNo && stock.status === 0) {
+        if (!updatedStockIds.includes(String(product.stockId))) {
+          return res.status(400).json({
+            error: `Cannot remove sold mobile with stock ID: ${product.stockId}`
+          });
+        }
+      }
+
+      // If stock is accessory and completely sold (quantity = 0), prevent removal
+      if (!stock?.imeiNo && stock?.quantity === 0) {
+        if (!updatedStockIds.includes(String(product.stockId))) {
+          return res.status(400).json({
+            error: `Cannot remove completely sold accessory with stock ID: ${product.stockId}`
+          });
+        }
       }
     }
 
@@ -178,24 +201,18 @@ exports.updatePurchase = async (req, res) => {
       return res.status(400).json({ error: 'Cannot modify details of returned products' });
     }
 
-    // Prevent removing or modifying sold products
-    for (const sold of soldProducts) {
-      if (!updatedStockIds.includes(String(sold.stockId))) {
-        return res.status(400).json({
-          error: `Cannot remove or modify sold product with stock ID: ${sold.stockId}`
-        });
-      }
-    }
+    // Revert stock for removed products (that are not sold/returned)
+    const removedProducts = oldPurchase.products?.filter(p => {
+      const stock = stocks.find(s => String(s._id) === String(p.stockId));
+      const isNotInUpdated = !updatedStockIds.includes(String(p.stockId));
+      const isNotReturned = !p.isReturn;
+      const isNotSold = stock ? (stock.imeiNo ? stock.status !== 0 : stock.quantity > 0) : false;
+      
+      return isNotInUpdated && isNotReturned && isNotSold;
+    }) || [];
 
-    // Revert stock for removed unsold, unreturned products
-    const removedUnsold = oldPurchase.products?.filter(p =>
-      !p.isSold &&
-      !p.isReturn &&
-      !updatedStockIds.includes(String(p.stockId))
-    ) || [];
-
-    if (removedUnsold.length > 0) {
-      await revertStock(removedUnsold);
+    if (removedProducts.length > 0) {
+      await revertStock(removedProducts);
     }
 
     // Handle document uploads and delete old files if any
@@ -236,14 +253,14 @@ exports.updatePurchase = async (req, res) => {
     // Revert old payments in account balances
     await revertAccountBalances(oldPurchase.payments || [], 'purchase');
 
-    // Create stock for any new unsold products added
-    const newUnsoldProducts = updatedProducts.filter(p =>
+    // Create stock for any new products added
+    const newProducts = updatedProducts.filter(p =>
       !oldPurchase.products?.some(op => String(op.stockId) === String(p.stockId))
     );
 
-    if (newUnsoldProducts.length > 0) {
+    if (newProducts.length > 0) {
       const productsWithStockIds = await createStock(
-        newUnsoldProducts,
+        newProducts,
         oldPurchase._id,
         oldPurchase.businessLocation
       );
@@ -262,30 +279,51 @@ exports.updatePurchase = async (req, res) => {
       });
     }
 
-    // Update existing stock quantities for modified products
+    // Update existing stock quantities for modified products (only for accessories not returned/sold)
     for (const updatedProduct of updatedProducts) {
       if (updatedProduct.stockId) {
         const oldProduct = oldPurchase.products.find(p => String(p.stockId) === String(updatedProduct.stockId));
-        if (oldProduct && oldProduct.quantity !== updatedProduct.quantity && !oldProduct.isSold && !oldProduct.isReturn) {
-          // Update stock quantity directly
-          await Stock.findByIdAndUpdate(updatedProduct.stockId, {
-            quantity: updatedProduct.quantity,
-            color: updatedProduct.color,
-            storage: updatedProduct.storage,
-            gstApplicable: updatedProduct.gstApplicable,
-            gstPercentage: updatedProduct.gstPercentage
-          });
+        const stock = stocks.find(s => String(s._id) === String(updatedProduct.stockId));
+        
+        if (oldProduct && stock && !oldProduct.isReturn) {
+          // Only update if it's an accessory (no IMEI) and not completely sold
+          if (!stock.imeiNo && stock.quantity > 0 && oldProduct.quantity !== updatedProduct.quantity) {
+            const quantityDiff = updatedProduct.quantity - oldProduct.quantity;
+            await Stock.findByIdAndUpdate(updatedProduct.stockId, {
+              $inc: { 
+                quantity: quantityDiff,
+                initialQuantity: quantityDiff
+              },
+              color: updatedProduct.color,
+              storage: updatedProduct.storage,
+              gstApplicable: updatedProduct.gstApplicable,
+              gstPercentage: updatedProduct.gstPercentage
+            });
+          }
         }
       }
     }
 
-    // Final products list = sold + returned + updated (excluding those already sold or returned)
+    // Final products list = returned + sold + updated (excluding those already returned/sold)
     const finalProducts = [
-      ...soldProducts,
       ...returnedProducts,
+      ...oldPurchase.products.filter(p => {
+        const stock = stocks.find(s => String(s._id) === String(p.stockId));
+        return !p.isReturn && stock?.imeiNo && stock.status === 0; // Sold mobiles
+      }),
+      ...oldPurchase.products.filter(p => {
+        const stock = stocks.find(s => String(s._id) === String(p.stockId));
+        return !p.isReturn && !stock?.imeiNo && stock?.quantity === 0; // Completely sold accessories
+      }),
       ...updatedProducts.filter(p =>
-        !soldProducts.some(sp => String(sp.stockId) === String(p.stockId)) &&
-        !returnedProducts.some(rp => String(rp.stockId) === String(p.stockId))
+        !returnedProducts.some(rp => String(rp.stockId) === String(p.stockId)) &&
+        !oldPurchase.products.some(op => {
+          const stock = stocks.find(s => String(s._id) === String(op.stockId));
+          return String(op.stockId) === String(p.stockId) && (
+            (stock?.imeiNo && stock.status === 0) || // Sold mobile
+            (!stock?.imeiNo && stock?.quantity === 0) // Completely sold accessory
+          );
+        })
       )
     ];
 

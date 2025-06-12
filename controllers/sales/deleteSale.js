@@ -1,6 +1,6 @@
 const Sale = require('../../models/saleModel');
-const revertStock = require('../../utils/revertStock');
 const { revertAccountBalances } = require('../../utils/revertAccountBalances');
+const revertStock = require('../../utils/revertStock');
 
 exports.deleteSale = async (req, res) => {
   try {
@@ -9,23 +9,23 @@ exports.deleteSale = async (req, res) => {
       return res.status(404).json({ message: 'Sale not found or already deleted' });
     }
 
-    // Revert account balances
+    // Revert payments
     await revertAccountBalances(sale.payments || [], 'sale');
 
-    // Revert stock for all sold products with their actual quantity
-    const productsToRevert = sale.products?.filter(p => p.stockId).map(p => ({
+    // Revert stock
+    const stockToRevert = sale.products?.filter(p => p.stockId).map(p => ({
       stockId: p.stockId,
-      quantity: p.quantity || 1 // fallback if somehow not present
+      quantity: p.quantity || 1
     })) || [];
 
-    if (productsToRevert.length > 0) {
-      await revertStock(productsToRevert);
+    if (stockToRevert.length > 0) {
+      await revertStock(stockToRevert);
     }
 
     sale.isDeleted = true;
     await sale.save();
 
-    res.status(200).json({ message: 'Sale soft deleted and stock/balance reverted' });
+    res.status(200).json({ message: 'Sale soft deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

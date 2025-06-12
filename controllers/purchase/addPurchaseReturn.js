@@ -3,6 +3,7 @@ const Purchase = require('../../models/purchaseModel');
 const PurchaseReturn = require('../../models/purchaseReturnModel');
 const generateAutoId = require('../../utils/generateAutoId');
 const consumeStock = require('../../utils/consumeStock');
+const Stock = require('../../models/stockModel');
 
 exports.addPurchaseReturn = async (req, res) => {
   try {
@@ -46,10 +47,19 @@ exports.addPurchaseReturn = async (req, res) => {
         });
       }
 
-      if (matchedProduct.isSold) {
-        return res.status(400).json({
-          error: `Product with ID ${item.productId} is already sold and cannot be returned.`
-        });
+      // Check if product is sold using stock status
+      const stock = await Stock.findById(matchedProduct.stockId);
+      if (stock) {
+        if (stock.imeiNo && stock.status === 0) {
+          return res.status(400).json({
+            error: `Mobile with ID ${item.productId} is already sold and cannot be returned.`
+          });
+        }
+        if (!stock.imeiNo && stock.quantity === 0) {
+          return res.status(400).json({
+            error: `Accessory with ID ${item.productId} is completely sold and cannot be returned.`
+          });
+        }
       }
 
       // Validate return quantity
@@ -57,6 +67,13 @@ exports.addPurchaseReturn = async (req, res) => {
       if (returnQuantity <= 0 || returnQuantity > matchedProduct.quantity) {
         return res.status(400).json({
           error: `Invalid return quantity ${returnQuantity} for product ${item.productId}. Available: ${matchedProduct.quantity}`
+        });
+      }
+
+      // For accessories, check available stock quantity
+      if (!stock?.imeiNo && returnQuantity > stock.quantity) {
+        return res.status(400).json({
+          error: `Cannot return ${returnQuantity} units. Only ${stock.quantity} units available in stock.`
         });
       }
 

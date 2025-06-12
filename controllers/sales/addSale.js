@@ -2,7 +2,6 @@ const Sale = require('../../models/saleModel');
 const generateAutoId = require('../../utils/generateAutoId');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 const consumeStock = require('../../utils/consumeStock');
-const Purchase = require('../../models/purchaseModel');
 const Stock = require('../../models/stockModel');
 const path = require('path');
 
@@ -47,26 +46,69 @@ exports.addSale = async (req, res) => {
       return res.status(400).json({ error: 'At least one product required' });
     }
 
-    // Resolve stockId for each product
+    // Resolve stockId for each product and validate quantities
     const resolvedProducts = [];
 
     for (const p of req.body.products) {
-      const stock = await Stock.findOne({
+      // Validate quantity based on product type
+      const requestedQuantity = p.quantity || 1;
+
+      if (p.imeiNo) {
+        // Mobile: quantity must be 0 or 1
+        if (![0, 1].includes(requestedQuantity)) {
+          return res.status(400).json({
+            error: `IMEI-based product quantity must be 0 or 1, got ${requestedQuantity}`
+          });
+        }
+      } else {
+        // Accessory: quantity must be >= 0
+        if (requestedQuantity < 0) {
+          return res.status(400).json({
+            error: `Accessory quantity must be >= 0, got ${requestedQuantity}`
+          });
+        }
+      }
+
+      // Skip stock resolution if quantity is 0
+      if (requestedQuantity === 0) {
+        resolvedProducts.push({
+          ...p,
+          quantity: 0,
+          stockId: null,
+        });
+        continue;
+      }
+
+      // Find available stock
+      const stockQuery = {
         product: p.product,
-        imeiNo: p.imeiNo,
-        color: p.color,
-        storage: p.storage,
-        status: 1, // only available stock
-      });
+        businessLocation: businessLocation,
+        quantity: { $gte: requestedQuantity }
+      };
+
+      // Add specific filters for mobiles
+      if (p.imeiNo) {
+        stockQuery.imeiNo = p.imeiNo;
+        stockQuery.status = 1; // Available mobile
+      }
+
+      // Add optional filters if provided
+      if (p.color) stockQuery.color = p.color;
+      if (p.storage) stockQuery.storage = p.storage;
+
+      const stock = await Stock.findOne(stockQuery);
 
       if (!stock) {
+        const productType = p.imeiNo ? 'mobile' : 'accessory';
+        const identifier = p.imeiNo ? `IMEI: ${p.imeiNo}` : `Product: ${p.product}`;
         return res.status(404).json({
-          error: `No available stock found for product ${p.product} (IMEI: ${p.imeiNo || 'N/A'})`,
+          error: `Insufficient stock for ${productType} (${identifier}). Required: ${requestedQuantity}, Available: ${stock?.quantity || 0}`
         });
       }
 
       resolvedProducts.push({
         ...p,
+        quantity: requestedQuantity,
         stockId: stock._id,
       });
     }
@@ -78,29 +120,17 @@ exports.addSale = async (req, res) => {
       addedBy,
       documents: filePaths,
       payments,
-      products: resolvedProducts, // ✅ with resolved stockIds
+      products: resolvedProducts,
     };
 
     // Save sale first
     const sale = new Sale(saleData);
     await sale.save();
 
-    // Consume stock
-    await consumeStock(resolvedProducts);
-
-    // Update Purchase records to mark sold items using stockId
-    const stockIds = resolvedProducts.map(p => p.stockId);
-    const stocks = await Stock.find({ _id: { $in: stockIds } }).select('purchaseRef');
-
-    for (const stock of stocks) {
-      const purchaseId = stock.purchaseRef;
-      const stockId = stock._id;
-      if (purchaseId) {
-        await Purchase.updateOne(
-          { _id: purchaseId, 'products.stockId': stockId },
-          { $set: { 'products.$.isSold': true } }
-        );
-      }
+    // Consume stock (only for products with quantity > 0)
+    const productsToConsume = resolvedProducts.filter(p => p.quantity > 0 && p.stockId);
+    if (productsToConsume.length > 0) {
+      await consumeStock(productsToConsume);
     }
 
     // Update account balances if payments were made

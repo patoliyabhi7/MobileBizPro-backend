@@ -23,25 +23,54 @@ exports.addSaleReturn = async (req, res) => {
       return res.status(403).json({ error: 'Sale does not belong to the given business location' });
     }
 
+    // Build input products map
     const inputProductsMap = {};
     for (const item of products) {
       if (!item.productId || typeof item.unitCost !== 'number') {
         return res.status(400).json({ error: 'Each product must include productId and unitCost' });
       }
-      inputProductsMap[item.productId] = item.unitCost;
+
+      // Validate return quantity
+      const returnQuantity = item.quantity || 1;
+      if (returnQuantity <= 0) {
+        return res.status(400).json({ 
+          error: `Return quantity must be greater than 0, got ${returnQuantity}` 
+        });
+      }
+
+      inputProductsMap[item.productId] = {
+        unitCost: item.unitCost,
+        quantity: returnQuantity
+      };
     }
 
+    // Find matching products in sale
     const matchedSaleProducts = [];
     for (const saleProduct of sale.products) {
       const saleProdIdStr = saleProduct.product.toString();
-      if (
-        inputProductsMap[saleProdIdStr] !== undefined &&
-        !saleProduct.isReturn
-      ) {
-        matchedSaleProducts.push({
-          ...saleProduct.toObject(),
-          unitCost: inputProductsMap[saleProdIdStr]
-        });
+      const inputProduct = inputProductsMap[saleProdIdStr];
+      
+      if (inputProduct && !saleProduct.isReturn) {
+        // Validate return quantity doesn't exceed sold quantity
+        if (inputProduct.quantity > saleProduct.quantity) {
+          return res.status(400).json({
+            error: `Cannot return ${inputProduct.quantity} units of product ${saleProdIdStr}. Only ${saleProduct.quantity} were sold.`
+          });
+        }
+
+        // Check if product has stock (was actually sold, not zero quantity)
+        if (saleProduct.quantity > 0 && saleProduct.stockId) {
+          matchedSaleProducts.push({
+            ...saleProduct.toObject(),
+            unitCost: inputProduct.unitCost,
+            quantity: inputProduct.quantity
+          });
+        } else {
+          return res.status(400).json({
+            error: `Cannot return product ${saleProdIdStr} as it was not actually sold (zero quantity or no stock)`
+          });
+        }
+        
         delete inputProductsMap[saleProdIdStr];
       }
     }
@@ -62,8 +91,11 @@ exports.addSaleReturn = async (req, res) => {
     });
     await sale.save();
 
-    // Mark stock as available (status: 1)
-    await markStockReturnedFromSale(matchedSaleProducts, sale._id);
+    // Mark stock as available - only for products that had stock consumed (quantity > 0)
+    const productsWithStock = matchedSaleProducts.filter(p => p.stockId && p.quantity > 0);
+    if (productsWithStock.length > 0) {
+      await markStockReturnedFromSale(productsWithStock, sale._id);
+    }
 
     const refNo = await generateAutoId('SALERET');
 
@@ -80,12 +112,12 @@ exports.addSaleReturn = async (req, res) => {
         storage: p.storage,
         imeiNo: p.imeiNo,
         serialNo: p.serialNo,
-        quantity: 1,
-        lineTotal: p.unitCost,
+        quantity: p.quantity,
+        lineTotal: p.unitCost * p.quantity,
         gstApplicable: p.gstApplicable || false,
         gstPercentage: p.gstPercentage || 18,
         gstAmount: p.gstAmount || 0,
-        lineTotalWithGst: p.lineTotalWithGst || p.unitCost,
+        lineTotalWithGst: p.lineTotalWithGst || (p.unitCost * p.quantity),
       })),
       totalReturnAmount,
       paymentStatus: 'due',
@@ -94,7 +126,7 @@ exports.addSaleReturn = async (req, res) => {
       addedBy
     });
 
-    // Create Purchase entry (with reused stockIds)
+    // Create Purchase entry (with reused stockIds for products that had stock)
     const purchase = await Purchase.create({
       referenceNo: refNo,
       supplier: sale.customer || null,
@@ -108,19 +140,19 @@ exports.addSaleReturn = async (req, res) => {
         imeiNo: p.imeiNo,
         serialNo: p.serialNo,
         unitCost: p.unitCost,
-        lineTotal: p.unitCost,
-        quantity: 1,
-        isSold: false,
+        lineTotal: p.unitCost * p.quantity,
+        quantity: p.quantity,
         isReturn: true,
         returnDate,
         gstApplicable: p.gstApplicable || false,
         gstPercentage: p.gstPercentage || 18,
         gstAmount: p.gstAmount || 0,
-        lineTotalWithGst: p.lineTotalWithGst || p.unitCost,
+        lineTotalWithGst: p.lineTotalWithGst || (p.unitCost * p.quantity),
       })),
       total: totalReturnAmount,
-      paymentStatus: 'due',
       paymentDue: totalReturnAmount,
+      status: 'return',
+      paymentStatus: 'due',
       addedBy,
       createdFromReturn: true,
       saleReturnRef: saleReturn._id,

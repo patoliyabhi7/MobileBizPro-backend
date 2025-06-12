@@ -10,59 +10,56 @@ exports.addPurchase = async (req, res) => {
     req.body.addedBy = req.user.userId;
     const filePaths = req.files?.map(file => `uploads/${file.filename}`) || [];
 
-    // Validate products before creating purchase
-    for (const item of req.body.products || []) {
+    const products = req.body.products || [];
+
+    // Pre-validate all products including IMEI duplication
+    for (const item of products) {
       if (!item.product) {
-        throw new Error('Missing product reference in one of the stock items.');
+        return res.status(400).json({ error: 'Missing product reference in one of the products.' });
       }
 
-      // For IMEI items (mobiles), quantity must be 1
-      if (item.imeiNo && item.quantity !== 1) {
-        return res.status(400).json({
-          error: `IMEI-based item must have quantity = 1, got ${item.quantity}`
-        });
-      }
-
-      // For accessories (no IMEI), quantity must be >= 0
-      if (!item.imeiNo && (item.quantity == null || item.quantity < 0)) {
-        return res.status(400).json({
-          error: `Accessories must have a quantity >= 0`
-        });
-      }
-
-      // Check for duplicate IMEI if provided
       if (item.imeiNo) {
-        const existing = await Stock.findOne({
-          imeiNo: item.imeiNo,
-        });
+        if (item.quantity !== 1) {
+          return res.status(400).json({ error: `IMEI-based item must have quantity = 1, got ${item.quantity}` });
+        }
 
-        if (existing && existing.quantity > 0) {
-          throw new Error(`Duplicate IMEI ${item.imeiNo} already exists and is in stock.`);
+        // Check for duplicate IMEI BEFORE purchase is saved
+        const existing = await Stock.findOne({ imeiNo: item.imeiNo, status: 1 });
+        if (existing) {
+          return res.status(400).json({ error: `Duplicate IMEI ${item.imeiNo} already exists in stock.` });
+        }
+
+      } else {
+        if (item.quantity == null || item.quantity < 0) {
+          return res.status(400).json({ error: 'Accessories must have a quantity >= 0' });
         }
       }
     }
 
-    // Parse payments (support stringified JSON or array)
+    // Parse and normalize payments
     let payments = [];
     if (req.body.payments) {
-      if (typeof req.body.payments === 'string') {
-        try {
+      try {
+        if (typeof req.body.payments === 'string') {
           payments = JSON.parse(req.body.payments);
-        } catch (e) {
+        } else if (Array.isArray(req.body.payments)) {
+          payments = req.body.payments;
+        } else {
           return res.status(400).json({ error: 'Invalid payments format' });
         }
-      } else if (Array.isArray(req.body.payments)) {
-        payments = req.body.payments;
-      }
 
-      const paymentRefNo = await generateAutoId('PURPYMNT');
-      payments = payments.map(p => ({
-        ...p,
-        paidOn: new Date(p.paidOn),
-        paymentRefNo
-      }));
+        const paymentRefNo = await generateAutoId('PURPYMNT');
+        payments = payments.map(p => ({
+          ...p,
+          paidOn: new Date(p.paidOn),
+          paymentRefNo
+        }));
+      } catch (e) {
+        return res.status(400).json({ error: 'Failed to parse payments' });
+      }
     }
 
+    // Create and save the purchase after validation
     const purchase = new Purchase({
       ...req.body,
       referenceNo,
@@ -72,21 +69,20 @@ exports.addPurchase = async (req, res) => {
 
     const savedPurchase = await purchase.save();
 
-    // Update account balances if payments present
+    // Update account balances if payments exist
     if (payments.length > 0) {
       await updateAccountBalances(payments, 'purchase');
     }
 
-    // Create stock entries for each product and get updated products with stockId
-    const productsWithStockIds = await createStock(
-      savedPurchase.products, 
-      savedPurchase._id, 
+    // Now safely create stock entries
+    const updatedProducts = await createStock(
+      savedPurchase.products,
+      savedPurchase._id,
       savedPurchase.businessLocation
     );
 
-    // Replace original products with updated ones containing stockId
-    savedPurchase.products = productsWithStockIds;
-    await savedPurchase.save(); // persist the stockIds to DB
+    savedPurchase.products = updatedProducts;
+    await savedPurchase.save();
 
     const populatedPurchase = await Purchase.findById(savedPurchase._id)
       .populate('supplier', 'businessName firstName lastName')
@@ -96,7 +92,11 @@ exports.addPurchase = async (req, res) => {
       .populate('payments.account')
       .populate('payments.method');
 
-    res.status(201).json({ message: 'Purchase added successfully', populatedPurchase });
+    res.status(201).json({
+      message: 'Purchase added successfully',
+      populatedPurchase
+    });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

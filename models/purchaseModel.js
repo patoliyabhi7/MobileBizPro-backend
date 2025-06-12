@@ -11,7 +11,6 @@ const purchaseProductSchema = new mongoose.Schema({
   lineTotal: { type: Number, required: true },
   note: String,
   stockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Stock' },
-  isSold: { type: Boolean, default: false },
   isReturn: { type: Boolean, default: false },
   returnDate: { type: Date },
   gstApplicable: { type: Boolean, default: false },
