@@ -10,7 +10,7 @@ exports.getPurchaseById = async (req, res) => {
         select: 'productName category',
         populate: {
           path: 'category',
-          select: 'name code description'
+          select: 'name code description isAcceptIMEI'
         }
       })
       .populate('addedBy', 'name _id')
