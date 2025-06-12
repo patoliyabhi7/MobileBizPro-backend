@@ -9,6 +9,7 @@ exports.getPurchaseById = async (req, res) => {
       .populate('addedBy', 'name _id')
       .populate('payments.account')
       .populate('payments.method')
+      .populate('category')
       .lean();
 
     if (!purchase || purchase.isDeleted) {
