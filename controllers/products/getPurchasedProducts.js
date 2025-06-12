@@ -70,8 +70,8 @@ exports.getPurchasedProducts = async (req, res) => {
         variation: stock.variation || 'DUMMY',
         variation_id: stock.variation_id || 0,
         selling_price: purchasePrice,
-        qty_available: 1,
-        availabel_to_sell: '1.0000',
+        qty_available: stock.quantity,
+        availabel_to_sell: stock.quantity,
         brand_name: product.brand?.name || null,
       });
     }

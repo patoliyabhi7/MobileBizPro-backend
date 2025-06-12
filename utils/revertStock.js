@@ -10,8 +10,10 @@ const revertStock = async (products = []) => {
 
     if (stockItem.imeiNo) {
       stockItem.status = 1; // Mark mobile as available again
+      stockItem.quantity = 1;
     } else {
       stockItem.quantity += quantity;
+      if(stockItem.quantity > 0) stockItem.status = 1;
     }
 
     await stockItem.save();

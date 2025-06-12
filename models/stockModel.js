@@ -8,6 +8,7 @@ const stockSchema = new mongoose.Schema({
   storage: String,
   initialQuantity: { type: Number, min: 0, default: 1 }, // total purchased quantity
   quantity: { type: Number, min: 0, default: 1 }, // remaining unsold quantity
+  unitCost: { type: Number, default: 0 },
   businessLocation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'BusinessLocation',

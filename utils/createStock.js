@@ -12,6 +12,7 @@ const createStock = async (products = [], purchaseId, businessLocationId) => {
       imeiNo: item.imeiNo || null,
       color: item.color || null,
       storage: item.storage || null,
+      unitCost: item.unitCost || 0,
       businessLocation: businessLocationId,
       gstApplicable: item.gstApplicable || false,
       gstPercentage: item.gstPercentage || 18,

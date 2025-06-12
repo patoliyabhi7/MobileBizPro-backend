@@ -11,11 +11,13 @@ const consumeStock = async (products = []) => {
     if (stockItem.imeiNo) {
       if (stockItem.status === 0) throw new Error(`IMEI-based stock ${stockId} already sold`);
       stockItem.status = 0;
+      stockItem.quantity = 0;
     } else {
       if (stockItem.quantity < quantity) {
         throw new Error(`Insufficient quantity in stock for product: ${stockId}`);
       }
       stockItem.quantity -= quantity;
+      if(stockItem.quantity === 0) stockItem.status = 0;
     }
 
     await stockItem.save();

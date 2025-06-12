@@ -157,21 +157,13 @@ exports.getBalanceSheet = async (req, res) => {
       stockMatch.createdAt = { $lte: endOfDate };
     }
 
-    const closingStockDocs = await Stock.find(stockMatch)
-      .populate({
-        path: 'purchaseRef',
-        select: 'products',
-      })
-      .lean();
+    const closingStockDocs = await Stock.find(stockMatch).lean();
 
     const closingStockValue = closingStockDocs.reduce((total, stockItem) => {
-      const purchaseProducts = stockItem.purchaseRef?.products || [];
-      const matchedProduct = purchaseProducts.find(
-        (p) => p.product?.toString() === stockItem.product?.toString()
-      );
-      const unitCost = matchedProduct?.unitCost || 0;
-      return total + unitCost;
-    }, 0);
+      const cost = Number(stockItem.unitCost || 0);
+      const availableQty = stockItem.imeiNo ? (stockItem.status === 1 ? 1 : 0) : Number(stockItem.quantity || 0);
+      return total + (cost * availableQty);
+    }, 0);    
 
     const totalAsset = totalAccountBalance + closingStockValue + customerDue;
     const totalLiability = supplierDue + totalExpense;

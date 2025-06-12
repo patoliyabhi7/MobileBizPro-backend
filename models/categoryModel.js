@@ -19,6 +19,10 @@ const categorySchema = new mongoose.Schema({
     ref: 'Category',
     default: null
   },
+  isAcceptIMEI : {
+    type: Boolean,
+    default: false
+  },
   isDeleted: {
     type: Boolean,
     default: false
