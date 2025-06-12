@@ -33,6 +33,7 @@ exports.addPurchaseReturn = async (req, res) => {
     }
 
     const returnedProducts = [];
+    const stocksToConsume = [];
 
     for (let item of products) {
       const matchedProduct = purchase.products.find(
@@ -51,6 +52,15 @@ exports.addPurchaseReturn = async (req, res) => {
         });
       }
 
+      // Validate return quantity
+      const returnQuantity = item.quantity || 1;
+      if (returnQuantity <= 0 || returnQuantity > matchedProduct.quantity) {
+        return res.status(400).json({
+          error: `Invalid return quantity ${returnQuantity} for product ${item.productId}. Available: ${matchedProduct.quantity}`
+        });
+      }
+
+      // Mark as returned in purchase
       matchedProduct.isReturn = true;
       matchedProduct.returnDate = new Date();
 
@@ -62,22 +72,29 @@ exports.addPurchaseReturn = async (req, res) => {
         storage: matchedProduct.storage,
         unitCost: item.unitCost ?? 0,
         lineTotal: item.lineTotal ?? item.unitCost ?? 0,
-        quantity: 1,
+        quantity: returnQuantity,
         gstApplicable: item.gstApplicable ?? false,
         gstPercentage: item.gstPercentage ?? 18,
         gstAmount: item.gstAmount ?? 0,
         lineTotalWithGst: item.lineTotalWithGst ?? item.unitCost ?? 0,
         note: item.note || ''
       });
+
+      // Add to stock consumption list if stockId exists
+      if (matchedProduct.stockId) {
+        stocksToConsume.push({
+          stockId: matchedProduct.stockId,
+          quantity: returnQuantity
+        });
+      }
     }
 
     await purchase.save();
 
-    await consumeStock(
-      purchase.products
-        .filter(p => p.isReturn && p.stockId)
-        .map(p => ({ stockId: p.stockId }))
-    );
+    // Consume stock for returned items
+    if (stocksToConsume.length > 0) {
+      await consumeStock(stocksToConsume);
+    }
 
     const returnDoc = await PurchaseReturn.create({
       originalPurchase: purchase._id,

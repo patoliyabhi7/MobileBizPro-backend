@@ -12,10 +12,10 @@ exports.updatePurchaseReturn = async (req, res) => {
       return res.status(404).json({ message: 'Purchase return not found' });
     }
 
-    // 👇 Revert old payments from account balances
+    // Revert old payments from account balances
     await revertAccountBalances(oldPurchaseReturn.returnPayments || [], 'purchase_return');
 
-    // 👇 Format new payments
+    // Format new payments
     let newPayments = Array.isArray(req.body.returnPayments) ? req.body.returnPayments : [];
 
     if (newPayments.length > 0) {
@@ -30,11 +30,11 @@ exports.updatePurchaseReturn = async (req, res) => {
 
     req.body.returnPayments = newPayments;
 
-    // 👇 Add `addedBy` from token if not present
+    // Add `addedBy` from token if not present
     req.body.addedBy = req.user?.userId || oldPurchaseReturn.addedBy;
 
-    // 👇 Recalculate payment status based on `totalReturnAmount` from request
-    const totalReturnAmount = Number(req.body.totalReturnAmount || oldPurchaseReturn.totalReturnAmount || 0);
+    // Recalculate payment status based on `totalReturnAmountWithGst` from request
+    const totalReturnAmount = Number(req.body.totalReturnAmountWithGst || oldPurchaseReturn.totalReturnAmountWithGst || 0);
     const totalPaid = newPayments.reduce((acc, cur) => acc + cur.amount, 0);
     const paymentDue = totalReturnAmount - totalPaid;
 
@@ -43,9 +43,9 @@ exports.updatePurchaseReturn = async (req, res) => {
     else if (paymentDue < totalReturnAmount) paymentStatus = 'partial';
 
     req.body.paymentStatus = paymentStatus;
-    req.body.paymentDue = paymentDue;
+    req.body.paymentDue = Math.max(0, paymentDue);
 
-    // 👇 Update purchase return document
+    // Update purchase return document
     const updatedPurchaseReturn = await PurchaseReturn.findByIdAndUpdate(
       purchaseReturnId,
       req.body,
@@ -61,13 +61,13 @@ exports.updatePurchaseReturn = async (req, res) => {
       return res.status(404).json({ message: 'Purchase return not found after update' });
     }
 
-    // 👇 Update account balances with new payments
+    // Update account balances with new payments
     if (newPayments.length > 0) {
       await updateAccountBalances(newPayments, 'purchase_return');
     }
 
     res.status(200).json({
-      message: 'Purchase return payments updated successfully',
+      message: 'Purchase return updated successfully',
       updatedPurchaseReturn
     });
   } catch (err) {

@@ -7,11 +7,7 @@ const stockSchema = new mongoose.Schema({
   color: String,
   storage: String,
   purchaseRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Purchase' },
-  status: {
-    type: Number,
-    enum: [0, 1],
-    default: 1 // 1 = in stock, 0 = sold or returned
-  },
+  quantity: { type: Number, min: 0, default: 0 },
   businessLocation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'BusinessLocation',

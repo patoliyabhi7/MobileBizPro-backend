@@ -10,31 +10,35 @@ exports.addPurchase = async (req, res) => {
     req.body.addedBy = req.user.userId;
     const filePaths = req.files?.map(file => `uploads/${file.filename}`) || [];
 
-    // Validate quantity = 1 for each product (due to unique stock)
-    for (const productLine of req.body.products || []) {
-      if (productLine.quantity !== 1) {
-        return res.status(400).json({
-          error: `Quantity for product ${productLine.product} must be exactly 1`
-        });
-      }
-    }
-
-    for (const item of req.body.products) {
+    // Validate products before creating purchase
+    for (const item of req.body.products || []) {
       if (!item.product) {
         throw new Error('Missing product reference in one of the stock items.');
       }
-  
-      // Only validate if IMEI exists
+
+      // For IMEI items (mobiles), quantity must be 1
+      if (item.imeiNo && item.quantity !== 1) {
+        return res.status(400).json({
+          error: `IMEI-based item must have quantity = 1, got ${item.quantity}`
+        });
+      }
+
+      // For accessories (no IMEI), quantity must be >= 0
+      if (!item.imeiNo && (item.quantity == null || item.quantity < 0)) {
+        return res.status(400).json({
+          error: `Accessories must have a quantity >= 0`
+        });
+      }
+
+      // Check for duplicate IMEI if provided
       if (item.imeiNo) {
         const existing = await Stock.findOne({
           imeiNo: item.imeiNo,
         });
-  
-        if (existing && existing.status === 1) {
-          throw new Error(`Duplicate IMEI ${item.imeiNo} for product already exists and is in stock (not sold or returned).`);
+
+        if (existing && existing.quantity > 0) {
+          throw new Error(`Duplicate IMEI ${item.imeiNo} already exists and is in stock.`);
         }
-  
-        // if exists && status === 0 → allowed (second-hand logic)
       }
     }
 
@@ -74,7 +78,11 @@ exports.addPurchase = async (req, res) => {
     }
 
     // Create stock entries for each product and get updated products with stockId
-    const productsWithStockIds = await createStock(savedPurchase.products, savedPurchase._id, savedPurchase.businessLocation);
+    const productsWithStockIds = await createStock(
+      savedPurchase.products, 
+      savedPurchase._id, 
+      savedPurchase.businessLocation
+    );
 
     // Replace original products with updated ones containing stockId
     savedPurchase.products = productsWithStockIds;

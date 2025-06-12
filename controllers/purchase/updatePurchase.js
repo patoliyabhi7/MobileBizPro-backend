@@ -4,6 +4,7 @@ const revertStock = require('../../utils/revertStock');
 const createStock = require('../../utils/createStock');
 const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 const { revertAccountBalances } = require('../../utils/revertAccountBalances');
+const Stock = require('../../models/stockModel');
 const fs = require('fs');
 
 exports.updatePurchase = async (req, res) => {
@@ -84,6 +85,39 @@ exports.updatePurchase = async (req, res) => {
         ? JSON.parse(req.body.products)
         : req.body.products;
 
+      // Validate updated products
+      for (const item of updatedProducts) {
+        if (!item.product) {
+          throw new Error('Missing product reference in one of the stock items.');
+        }
+
+        // For IMEI items (mobiles), quantity must be 1
+        if (item.imeiNo && item.quantity !== 1) {
+          return res.status(400).json({
+            error: `IMEI-based item must have quantity = 1, got ${item.quantity}`
+          });
+        }
+
+        // For accessories (no IMEI), quantity must be >= 0
+        if (!item.imeiNo && (item.quantity == null || item.quantity < 0)) {
+          return res.status(400).json({
+            error: `Accessories must have a quantity >= 0`
+          });
+        }
+
+        // Check for duplicate IMEI if it's a new item or IMEI was changed
+        if (item.imeiNo) {
+          const existingIMEI = await Stock.findOne({
+            imeiNo: item.imeiNo,
+            _id: { $ne: item.stockId } // Exclude current stock item
+          });
+
+          if (existingIMEI && existingIMEI.quantity > 0) {
+            throw new Error(`Duplicate IMEI ${item.imeiNo} already exists in another stock item.`);
+          }
+        }
+      }
+
       // Fill missing stockId from oldPurchase.products by matching keys
       updatedProducts = updatedProducts.map(up => {
         if (!up.stockId) {
@@ -100,15 +134,16 @@ exports.updatePurchase = async (req, res) => {
         return up;
       });
 
-      // Validate that all products now have valid stockId
-      const missingStockId = updatedProducts.find(p => !p.stockId);
+      // Validate that all existing products have valid stockId
+      const missingStockId = updatedProducts.find(p => !p.stockId && 
+        oldPurchase.products.some(op => 
+          op.product.toString() === p.product &&
+          op.color === p.color &&
+          op.storage === p.storage
+        )
+      );
       if (missingStockId) {
-        return res.status(400).json({ error: 'Each product must have a valid stockId' });
-      }
-
-      // Ensure all quantities are 1
-      if (!updatedProducts.every(p => p.quantity === 1)) {
-        return res.status(400).json({ error: 'Each product must have quantity = 1' });
+        return res.status(400).json({ error: 'Each existing product must have a valid stockId' });
       }
     }
 
@@ -207,11 +242,41 @@ exports.updatePurchase = async (req, res) => {
     );
 
     if (newUnsoldProducts.length > 0) {
-      await createStock(
+      const productsWithStockIds = await createStock(
         newUnsoldProducts,
         oldPurchase._id,
         oldPurchase.businessLocation
       );
+      
+      // Update the updatedProducts with the new stockIds
+      productsWithStockIds.forEach(newProduct => {
+        const index = updatedProducts.findIndex(p => 
+          p.product === newProduct.product && 
+          p.color === newProduct.color && 
+          p.storage === newProduct.storage &&
+          !p.stockId
+        );
+        if (index !== -1) {
+          updatedProducts[index] = newProduct;
+        }
+      });
+    }
+
+    // Update existing stock quantities for modified products
+    for (const updatedProduct of updatedProducts) {
+      if (updatedProduct.stockId) {
+        const oldProduct = oldPurchase.products.find(p => String(p.stockId) === String(updatedProduct.stockId));
+        if (oldProduct && oldProduct.quantity !== updatedProduct.quantity && !oldProduct.isSold && !oldProduct.isReturn) {
+          // Update stock quantity directly
+          await Stock.findByIdAndUpdate(updatedProduct.stockId, {
+            quantity: updatedProduct.quantity,
+            color: updatedProduct.color,
+            storage: updatedProduct.storage,
+            gstApplicable: updatedProduct.gstApplicable,
+            gstPercentage: updatedProduct.gstPercentage
+          });
+        }
+      }
     }
 
     // Final products list = sold + returned + updated (excluding those already sold or returned)
