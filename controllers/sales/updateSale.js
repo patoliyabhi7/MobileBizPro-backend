@@ -69,6 +69,8 @@ exports.updateSale = async (req, res) => {
         );
       }
 
+      console.log('match', match);
+
       if (requestedQuantity === 0) {
         resolvedProducts.push({
           ...p,

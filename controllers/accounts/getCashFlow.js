@@ -54,7 +54,7 @@ exports.getCashFlow = async (req, res) => {
         credit: parseFloat(credit || 0),
         transaction_type,
         isInternal,
-        balance: 0, // Will be filled later with actual account balance
+        balance: 0, // Will be calculated later
       });
     };
 
@@ -226,8 +226,54 @@ exports.getCashFlow = async (req, res) => {
       });
     });
 
-    // Sort by date (ascending for processing)
-    entries.sort((a, b) => new Date(a.date) - new Date(b.date));
+    // Fetch account initial balances
+    const accountInitialBalances = {};
+    const accountCurrentBalances = {};
+    
+    if (account_id) {
+      const acc = await Account.findById(account_id);
+      if (acc) {
+        accountInitialBalances[account_id] = parseFloat(acc.initialBalance || 0);
+        accountCurrentBalances[account_id] = parseFloat(acc.balance || 0);
+      }
+    } else {
+      const accounts = await Account.find({ is_active: true });
+      accounts.forEach(acc => {
+        const accId = acc._id.toString();
+        accountInitialBalances[accId] = parseFloat(acc.initialBalance || 0);
+        accountCurrentBalances[accId] = parseFloat(acc.balance || 0);
+      });
+    }
+
+    // Sort by date (ascending for processing) and then by account
+    entries.sort((a, b) => {
+      const dateCompare = new Date(a.date) - new Date(b.date);
+      if (dateCompare !== 0) return dateCompare;
+      return a.accountId.localeCompare(b.accountId);
+    });
+
+    // Calculate running balances for each account
+    const accountRunningBalances = {};
+    
+    // Initialize running balances with initial balances
+    Object.keys(accountInitialBalances).forEach(accId => {
+      accountRunningBalances[accId] = accountInitialBalances[accId];
+    });
+
+    entries.forEach((entry) => {
+      const accId = entry.accountId;
+      
+      // Initialize if not exists
+      if (accountRunningBalances[accId] === undefined) {
+        accountRunningBalances[accId] = accountInitialBalances[accId] || 0;
+      }
+      
+      // Calculate new running balance
+      accountRunningBalances[accId] += entry.credit - entry.debit;
+      
+      // Store the balance after this transaction
+      entry.balance = parseFloat(accountRunningBalances[accId].toFixed(2));
+    });
 
     let totalCredit = 0;
     let totalDebit = 0;
@@ -237,33 +283,19 @@ exports.getCashFlow = async (req, res) => {
       totalDebit += entry.debit;
     });
 
-    // Fetch actual account balances from DB
-    const accountBalances = {};
-    if (account_id) {
-      const acc = await Account.findById(account_id);
-      accountBalances[account_id] = acc?.balance || 0;
-    } else {
-      const accounts = await Account.find({});
-      accounts.forEach(acc => {
-        accountBalances[acc._id.toString()] = acc.balance || 0;
-      });
-    }
-
-    // Assign current account balance (not running balance)
-    entries.forEach(entry => {
-      entry.balance = parseFloat(accountBalances[entry.accountId] || 0);
-    });
-
-    // Determine final balances
+    // Determine opening and closing balances
     let opening_balance = 0;
     let closing_balance = 0;
-    if (account_id && accountBalances[account_id] !== undefined) {
-      closing_balance = parseFloat(accountBalances[account_id].toFixed(2));
+    
+    if (account_id) {
+      opening_balance = accountInitialBalances[account_id] || 0;
+      closing_balance = accountCurrentBalances[account_id] || 0;
     } else {
-      closing_balance = Object.values(accountBalances).reduce((sum, bal) => sum + bal, 0);
+      opening_balance = Object.values(accountInitialBalances).reduce((sum, bal) => sum + bal, 0);
+      closing_balance = Object.values(accountCurrentBalances).reduce((sum, bal) => sum + bal, 0);
     }
 
-    // Sort final entries for response (descending)
+    // Sort final entries for response (descending by date)
     entries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     const finalEntries = entries.filter(entry => {

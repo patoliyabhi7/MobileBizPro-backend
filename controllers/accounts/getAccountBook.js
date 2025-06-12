@@ -36,7 +36,7 @@ exports.getAccountBook = async (req, res) => {
       return res.status(400).json({ error: 'Account ID is required' });
     }
 
-    const account = await Account.findById(accountId).select('name account_type balance');
+    const account = await Account.findById(accountId).select('name account_type balance initialBalance');
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const entries = [];
@@ -311,8 +311,8 @@ exports.getAccountBook = async (req, res) => {
     // STEP 1: Sort entries chronologically (oldest first)
     entries.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // STEP 2: Calculate running balance in chronological order
-    let runningBalance = 0; // Starting balance - you might want to get this from account.balance or calculate it
+    // STEP 2: Calculate running balance starting with initialBalance
+    let runningBalance = parseFloat(account.initialBalance || 0);
     let totalDebit = 0;
     let totalCredit = 0;
 
@@ -325,17 +325,15 @@ exports.getAccountBook = async (req, res) => {
       runningBalance += entry.credit - entry.debit;
       
       // Store the balance after this transaction
-      entry.balance = runningBalance.toFixed(2);
+      entry.balance = parseFloat(runningBalance.toFixed(2));
       
       // Format the amounts for display
-      entry.debit = entry.debit ? entry.debit.toFixed(2) : '';
-      entry.credit = entry.credit ? entry.credit.toFixed(2) : '';
+      entry.debit = entry.debit ? parseFloat(entry.debit.toFixed(2)) : 0;
+      entry.credit = entry.credit ? parseFloat(entry.credit.toFixed(2)) : 0;
     });
 
-    // Calculate opening balance (balance before first transaction)
-    const openingBalance = entries.length > 0 
-      ? runningBalance - (totalCredit - totalDebit)
-      : 0;
+    // Calculate opening balance (initialBalance)
+    const openingBalance = parseFloat(account.initialBalance || 0);
 
     // STEP 3: Sort entries by date (newest first) for display
     entries.sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -344,11 +342,11 @@ exports.getAccountBook = async (req, res) => {
       accountId,
       accountName: account.name,
       accountType: account.account_type,
-      openingBalance: openingBalance.toFixed(2),
-      totalDebit: totalDebit.toFixed(2),
-      totalCredit: totalCredit.toFixed(2),
-      closingBalance: runningBalance.toFixed(2),
-      accountBalance: account.balance ? account.balance.toFixed(2) : '0.00',
+      openingBalance: parseFloat(openingBalance.toFixed(2)),
+      totalDebit: parseFloat(totalDebit.toFixed(2)),
+      totalCredit: parseFloat(totalCredit.toFixed(2)),
+      closingBalance: parseFloat(runningBalance.toFixed(2)),
+      accountBalance: parseFloat((account.balance || 0).toFixed(2)),
       startDate,
       endDate,
       locationId: locationId || 'All locations',
