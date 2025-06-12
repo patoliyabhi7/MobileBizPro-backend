@@ -5,11 +5,17 @@ exports.getPurchaseById = async (req, res) => {
     const purchase = await Purchase.findById(req.params.id)
       .populate('supplier', 'businessName firstName lastName')
       .populate('businessLocation', 'name')
-      .populate('products.product', 'productName')
+      .populate({
+        path: 'products.product',
+        select: 'productName category',
+        populate: {
+          path: 'category',
+          select: 'name code description'
+        }
+      })
       .populate('addedBy', 'name _id')
       .populate('payments.account')
       .populate('payments.method')
-      .populate('category')
       .lean();
 
     if (!purchase || purchase.isDeleted) {
