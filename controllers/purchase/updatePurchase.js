@@ -85,6 +85,22 @@ exports.updatePurchase = async (req, res) => {
         ? JSON.parse(req.body.products)
         : req.body.products;
 
+      // Fill missing stockId from oldPurchase.products by matching keys
+      updatedProducts = updatedProducts.map(up => {
+        if (!up.stockId) {
+          const match = oldPurchase.products.find(op =>
+            op.product.toString() === up.product &&
+            op.color === up.color &&
+            op.storage === up.storage &&
+            (op.imeiNo === up.imeiNo || op.serialNo === up.serialNo)
+          );
+          if (match) {
+            up.stockId = match.stockId;
+          }
+        }
+        return up;
+      });
+
       // Validate updated products
       for (const item of updatedProducts) {
         if (!item.product) {
@@ -109,10 +125,65 @@ exports.updatePurchase = async (req, res) => {
         if (item.imeiNo) {
           const existingIMEI = await Stock.findOne({
             imeiNo: item.imeiNo,
-            _id: { $ne: item.stockId } // Exclude current stock item
+            status: 1
           });
 
-          if (existingIMEI && existingIMEI.status === 1) {
+          if (
+            existingIMEI &&
+            (!item.stockId || String(existingIMEI._id) !== String(item.stockId))
+          ) {
+            throw new Error(`Duplicate IMEI ${item.imeiNo} already exists in another stock item.`);
+          }
+        }
+      }
+
+      // Fill missing stockId from oldPurchase.products by matching keys
+      updatedProducts = updatedProducts.map(up => {
+        if (!up.stockId) {
+          const match = oldPurchase.products.find(op =>
+            op.product.toString() === up.product &&
+            op.color === up.color &&
+            op.storage === up.storage &&
+            (op.imeiNo === up.imeiNo || op.serialNo === up.serialNo)
+          );
+          if (match) {
+            up.stockId = match.stockId;
+          }
+        }
+        return up;
+      });
+
+      // Validate updated products
+      for (const item of updatedProducts) {
+        if (!item.product) {
+          throw new Error('Missing product reference in one of the stock items.');
+        }
+
+        // For IMEI items (mobiles), quantity must be 1
+        if (item.imeiNo && item.quantity !== 1) {
+          return res.status(400).json({
+            error: `IMEI-based item must have quantity = 1, got ${item.quantity}`
+          });
+        }
+
+        // For accessories (no IMEI), quantity must be >= 0
+        if (!item.imeiNo && (item.quantity == null || item.quantity < 0)) {
+          return res.status(400).json({
+            error: `Accessories must have a quantity >= 0`
+          });
+        }
+
+        // Check for duplicate IMEI if it's a new item or IMEI was changed
+        if (item.imeiNo) {
+          const existingIMEI = await Stock.findOne({
+            imeiNo: item.imeiNo,
+            status: 1
+          });
+
+          if (
+            existingIMEI &&
+            (!item.stockId || String(existingIMEI._id) !== String(item.stockId))
+          ) {
             throw new Error(`Duplicate IMEI ${item.imeiNo} already exists in another stock item.`);
           }
         }
@@ -135,8 +206,8 @@ exports.updatePurchase = async (req, res) => {
       });
 
       // Validate that all existing products have valid stockId
-      const missingStockId = updatedProducts.find(p => !p.stockId && 
-        oldPurchase.products.some(op => 
+      const missingStockId = updatedProducts.find(p => !p.stockId &&
+        oldPurchase.products.some(op =>
           op.product.toString() === p.product &&
           op.color === p.color &&
           op.storage === p.storage
@@ -150,7 +221,7 @@ exports.updatePurchase = async (req, res) => {
     // Check stock status for restrictions
     const stockIds = oldPurchase.products?.map(p => p.stockId).filter(Boolean) || [];
     const stocks = await Stock.find({ _id: { $in: stockIds } });
-    
+
     const returnedProducts = oldPurchase.products?.filter(p => p.isReturn) || [];
     const returnedStockIds = returnedProducts.map(p => String(p.stockId));
     const updatedStockIds = updatedProducts.map(p => String(p.stockId));
@@ -158,7 +229,7 @@ exports.updatePurchase = async (req, res) => {
     // Check for sold/returned products and apply restrictions
     for (const product of oldPurchase.products || []) {
       const stock = stocks.find(s => String(s._id) === String(product.stockId));
-      
+
       // If product is returned, prevent removal
       if (product.isReturn && !updatedStockIds.includes(String(product.stockId))) {
         return res.status(400).json({
@@ -207,7 +278,7 @@ exports.updatePurchase = async (req, res) => {
       const isNotInUpdated = !updatedStockIds.includes(String(p.stockId));
       const isNotReturned = !p.isReturn;
       const isNotSold = stock ? (stock.imeiNo ? stock.status !== 0 : stock.quantity > 0) : false;
-      
+
       return isNotInUpdated && isNotReturned && isNotSold;
     }) || [];
 
@@ -264,12 +335,12 @@ exports.updatePurchase = async (req, res) => {
         oldPurchase._id,
         oldPurchase.businessLocation
       );
-      
+
       // Update the updatedProducts with the new stockIds
       productsWithStockIds.forEach(newProduct => {
-        const index = updatedProducts.findIndex(p => 
-          p.product === newProduct.product && 
-          p.color === newProduct.color && 
+        const index = updatedProducts.findIndex(p =>
+          p.product === newProduct.product &&
+          p.color === newProduct.color &&
           p.storage === newProduct.storage &&
           !p.stockId
         );
@@ -284,13 +355,13 @@ exports.updatePurchase = async (req, res) => {
       if (updatedProduct.stockId) {
         const oldProduct = oldPurchase.products.find(p => String(p.stockId) === String(updatedProduct.stockId));
         const stock = stocks.find(s => String(s._id) === String(updatedProduct.stockId));
-        
+
         if (oldProduct && stock && !oldProduct.isReturn) {
           // Only update if it's an accessory (no IMEI) and not completely sold
           if (!stock.imeiNo && stock.quantity > 0 && oldProduct.quantity !== updatedProduct.quantity) {
             const quantityDiff = updatedProduct.quantity - oldProduct.quantity;
             await Stock.findByIdAndUpdate(updatedProduct.stockId, {
-              $inc: { 
+              $inc: {
                 quantity: quantityDiff,
                 initialQuantity: quantityDiff
               },
