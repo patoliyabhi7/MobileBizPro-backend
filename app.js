@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const connectDB = require('./config/db');
 require('dotenv').config();
+const { warmupInvoiceSystem, cleanupInvoiceSystem } = require('./controllers/invoice/generateInvoice');
 
 const app = express();
 connectDB();
