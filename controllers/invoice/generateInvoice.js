@@ -38,6 +38,11 @@ exports.generateInvoice = async (req, res) => {
       return res.status(400).json({ error: 'Default invoice layout not set' });
     }
 
+    const formattedTerms = (layout.termsAndConditions || 'No returns after 7 days')
+      .split('\n')
+      .map(line => `<p style="margin: 0; padding: 0;">• ${line}</p>`)
+      .join('');
+
     // Calculate totals and words
     const allProducts = sale.products;
     const totalQuantity = allProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
@@ -106,6 +111,9 @@ exports.generateInvoice = async (req, res) => {
           padding: 30px;
           border: 2px solid #000;
           border-radius: 8px;
+          display: flex;
+          flex-direction: column;
+          min-height: 900px; /* Ensure minimum height for proper spacing */
         }
         .header {
           display: flex;
@@ -161,22 +169,23 @@ exports.generateInvoice = async (req, res) => {
         table.table tbody tr:nth-child(even) {
           background-color: #f9f9f9;
         }
-        .summary {
-          margin-top: 30px;
+        .content-wrapper {
+          flex: 1; /* This makes this section expand and push the payment section down */
+        }
+        .payment-section {
+          margin-top: auto; 
+        }
+        .payment-summary {
+          line-height: 2;
           font-size: 13px;
         }
-        .summary table {
-          width: 100%;
-          border-collapse: collapse;
+        .payment-summary .row {
+          display: flex;
+          justify-content: space-between;
+          border-bottom: 1px solid #eee;
         }
-        .summary td {
-          padding: 6px 0;
-          border-bottom: 1px solid #ddd;
-        }
-        .summary tr.total td {
+        .payment-summary .row.total {
           font-weight: bold;
-          font-size: 14px;
-          border-bottom: none;
         }
         .terms {
           margin-top: 25px;
@@ -217,54 +226,56 @@ exports.generateInvoice = async (req, res) => {
           </div>
         </div>
 
-        <table class="table" cellpadding="0" cellspacing="0">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Product Detail</th>
-              <th>IMEI</th>
-              <th>Qty</th>
-              <th>Unit Price</th>
-              <th>Subtotal</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${productRows}
-          </tbody>
-        </table>
-
-        <div class="summary">
-          <table>
-            <tr>
-              <td><strong>Payment Method:</strong></td>
-              <td>${sale.payments[0]?.method?.name || '-'}</td>
-            </tr>
-            <tr>
-              <td>Total Quantity:</td>
-              <td>${totalQuantity}</td>
-            </tr>
-            <tr>
-              <td>Subtotal:</td>
-              <td>₹${(sale.total || 0).toFixed(2)}</td>
-            </tr>
-            <tr class="total">
-              <td>Total Paid:</td>
-              <td>₹${totalPaid.toFixed(2)}</td>
-            </tr>
-            <tr class="total">
-              <td>Payment Due:</td>
-              <td>₹${paymentDue.toFixed(2)}</td>
-            </tr>
-            <tr class="total">
-              <td>Total (in words):</td>
-              <td>${totalInWords}</td>
-            </tr>
+        <div class="content-wrapper">
+          <table class="table" cellpadding="0" cellspacing="0">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Product Detail</th>
+                <th>IMEI</th>
+                <th>Qty</th>
+                <th>Unit Price</th>
+                <th>Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${productRows}
+            </tbody>
           </table>
         </div>
 
-        <div class="terms">
-          <h4>Terms & Conditions</h4>
-          <p>${layout.termsAndConditions || 'Thank you for your purchase!'}</p>
+        <div class="payment-section">
+          <div class="payment-summary">
+            <div class="row">
+              <strong>Payment Method:</strong>
+              <span>${sale.payments[0]?.method?.name || '-'}</span>
+            </div>
+            <div class="row">
+              <span>Total Quantity:</span>
+              <span>${totalQuantity}</span>
+            </div>
+            <div class="row">
+              <span>Subtotal:</span>
+              <span>₹${(sale.total || 0).toFixed(2)}</span>
+            </div>
+            <div class="row">
+              <span>Total Paid:</span>
+              <span>₹${totalPaid.toFixed(2)}</span>
+            </div>
+            <div class="row">
+              <span>Payment Due:</span>
+              <span>₹${paymentDue.toFixed(2)}</span>
+            </div>
+            <div class="row total">
+              <span>Total (in words):</span>
+              <span>${totalInWords}</span>
+            </div>
+          </div>
+
+          <div class="terms">
+            <h4>Terms & Conditions</h4>
+            ${formattedTerms}
+          </div>
         </div>
       </div>
     </body>
