@@ -7,6 +7,25 @@ const { revertAccountBalances } = require('../../utils/revertAccountBalances');
 const Stock = require('../../models/stockModel');
 const fs = require('fs');
 
+// Helper function to match products and find stockId
+const findMatchingStockId = (product, oldProducts) => {
+  let match;
+  
+  if (product.imeiNo) {
+    // Mobile match by IMEI
+    match = oldProducts.find(op => op.imeiNo === product.imeiNo);
+  } else {
+    // Accessory match by product + color (if present)
+    match = oldProducts.find(op =>
+      op.product.toString() === product.product &&
+      !op.imeiNo && // must not be a mobile
+      (!product.color || op.color === product.color)
+    );
+  }
+  
+  return match ? match.stockId : null;
+};
+
 exports.updatePurchase = async (req, res) => {
   try {
     const oldPurchase = await Purchase.findById(req.params.id);
@@ -88,15 +107,7 @@ exports.updatePurchase = async (req, res) => {
       // Fill missing stockId from oldPurchase.products by matching keys
       updatedProducts = updatedProducts.map(up => {
         if (!up.stockId) {
-          const match = oldPurchase.products.find(op =>
-            op.product.toString() === up.product &&
-            op.color === up.color &&
-            op.storage === up.storage &&
-            (op.imeiNo === up.imeiNo || op.serialNo === up.serialNo)
-          );
-          if (match) {
-            up.stockId = match.stockId;
-          }
+          up.stockId = findMatchingStockId(up, oldPurchase.products);
         }
         return up;
       });
@@ -140,15 +151,7 @@ exports.updatePurchase = async (req, res) => {
       // Fill missing stockId from oldPurchase.products by matching keys
       updatedProducts = updatedProducts.map(up => {
         if (!up.stockId) {
-          const match = oldPurchase.products.find(op =>
-            op.product.toString() === up.product &&
-            op.color === up.color &&
-            op.storage === up.storage &&
-            (op.imeiNo === up.imeiNo || op.serialNo === up.serialNo)
-          );
-          if (match) {
-            up.stockId = match.stockId;
-          }
+          up.stockId = findMatchingStockId(up, oldPurchase.products);
         }
         return up;
       });
@@ -192,15 +195,7 @@ exports.updatePurchase = async (req, res) => {
       // Fill missing stockId from oldPurchase.products by matching keys
       updatedProducts = updatedProducts.map(up => {
         if (!up.stockId) {
-          const match = oldPurchase.products.find(op =>
-            op.product.toString() === up.product &&
-            op.color === up.color &&
-            op.storage === up.storage &&
-            (op.imeiNo === up.imeiNo || op.serialNo === up.serialNo)
-          );
-          if (match) {
-            up.stockId = match.stockId;
-          }
+          up.stockId = findMatchingStockId(up, oldPurchase.products);
         }
         return up;
       });
