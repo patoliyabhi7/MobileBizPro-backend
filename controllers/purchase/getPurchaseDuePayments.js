@@ -21,6 +21,7 @@ exports.getPurchaseDuePayments = async (req, res) => {
         (purchase.supplier?.firstName || '') +
         ' ' +
         (purchase.supplier?.lastName || '') || 'N/A',
+      supplierId: purchase.supplier?._id || null,
       referenceNo: purchase.referenceNo,
       dueAmount: purchase.paymentDue,
       purchaseId: purchase._id

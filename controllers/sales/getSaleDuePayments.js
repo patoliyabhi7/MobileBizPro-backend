@@ -18,6 +18,7 @@ exports.getSaleDuePayments = async (req, res) => {
 
     const result = dueSales.map(sale => ({
       customerName: sale.customer?.firstName + ' ' + sale.customer?.lastName || 'N/A',
+      customerId: sale.customer?._id || null,
       invoiceNo: sale.invoiceNo,
       dueAmount: sale.paymentDue,
       saleId: sale._id
