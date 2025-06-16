@@ -95,34 +95,39 @@ exports.getAccountBook = async (req, res) => {
       
       Sale.find({ 
         ...getDateRangeMatch('saleDate', startDate, endDate, locationId), 
-        'payments.account': accountId 
+        'payments.account': accountId,
+        isDeleted: { $ne: true }
       }).populate('addedBy', 'name')
         .populate('customer', 'firstName lastName')
         .populate('payments.method', 'name'),
       
       Purchase.find({ 
         ...getDateRangeMatch('purchaseDate', startDate, endDate, locationId), 
-        'payments.account': accountId 
+        'payments.account': accountId,
+        isDeleted: { $ne: true }
       }).populate('addedBy', 'name')
         .populate('supplier', 'businessName')
         .populate('payments.method', 'name'),
       
       Expense.find({ 
         ...getDateRangeMatch('transactionDate', startDate, endDate, locationId), 
-        'payments.account': accountId 
+        'payments.account': accountId,
+        isDeleted: { $ne: true }
       }).populate('addedBy', 'name')
         .populate('category', 'name')
         .populate('payments.method', 'name'),
       
       SaleReturn.find({ 
         ...getDateRangeMatch('returnDate', startDate, endDate, locationId), 
-        'returnPayments.account': accountId 
+        'returnPayments.account': accountId,
+        isDeleted: { $ne: true }
       }).populate('addedBy', 'name')
         .populate('returnPayments.method', 'name'),
       
       PurchaseReturn.find({ 
         ...getDateRangeMatch('returnDate', startDate, endDate, locationId), 
-        'returnPayments.account': accountId 
+        'returnPayments.account': accountId,
+        isDeleted: { $ne: true }
       }).populate('addedBy', 'name')
         .populate('returnPayments.method', 'name'),
     ]);

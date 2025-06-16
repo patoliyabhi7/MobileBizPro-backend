@@ -29,11 +29,26 @@ exports.getCashFlow = async (req, res) => {
     ] = await Promise.all([
       Deposit.find(location_id ? { businessLocation: location_id } : {}).populate('to_account'),
       FundTransfer.find(location_id ? { businessLocation: location_id } : {}).populate('from_account to_account'),
-      Sale.find(location_id ? { businessLocation: location_id } : {}).populate('addedBy customer payments.account payments.method'),
-      Purchase.find(location_id ? { businessLocation: location_id } : {}).populate('addedBy supplier payments.account payments.method'),
-      Expense.find(location_id ? { businessLocation: location_id } : {}).populate('payments.account payments.method category'),
-      SaleReturn.find(location_id ? { businessLocation: location_id } : {}).populate('addedBy returnPayments.account returnPayments.method originalSale'),
-      PurchaseReturn.find(location_id ? { businessLocation: location_id } : {}).populate('addedBy returnPayments.account returnPayments.method originalPurchase'),
+      Sale.find({
+        ...(location_id ? { businessLocation: location_id } : {}),
+        isDeleted: { $ne: true }
+      }).populate('addedBy customer payments.account payments.method'),
+      Purchase.find({
+        ...(location_id ? { businessLocation: location_id } : {}),
+        isDeleted: { $ne: true }
+      }).populate('addedBy supplier payments.account payments.method'),
+      Expense.find({
+        ...(location_id ? { businessLocation: location_id } : {}),
+        isDeleted: { $ne: true }
+      }).populate('payments.account payments.method category'),
+      SaleReturn.find({
+        ...(location_id ? { businessLocation: location_id } : {}),
+        isDeleted: { $ne: true }
+      }).populate('addedBy returnPayments.account returnPayments.method originalSale'),
+      PurchaseReturn.find({
+        ...(location_id ? { businessLocation: location_id } : {}),
+        isDeleted: { $ne: true }
+      }).populate('addedBy returnPayments.account returnPayments.method originalPurchase'),
     ]);
 
     const entries = [];

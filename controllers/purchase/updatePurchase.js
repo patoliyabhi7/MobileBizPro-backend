@@ -33,7 +33,7 @@ exports.updatePurchase = async (req, res) => {
       return res.status(404).json({ message: 'Purchase not found or deleted' });
     }
 
-    // If purchase is created from sale return, restrict product updates
+    // If purchase is created from sale return return, restrict product updates
     if (oldPurchase.createdFromReturn) {
       if ('products' in req.body) {
         return res.status(400).json({
@@ -352,20 +352,28 @@ exports.updatePurchase = async (req, res) => {
         const stock = stocks.find(s => String(s._id) === String(updatedProduct.stockId));
 
         if (oldProduct && stock && !oldProduct.isReturn) {
-          // Only update if it's an accessory (no IMEI) and not completely sold
+          // Create a common update object for all stock updates
+          const stockUpdateData = {
+            color: updatedProduct.color,
+            gstApplicable: updatedProduct.gstApplicable,
+            gstPercentage: updatedProduct.gstPercentage,
+            unitCost: updatedProduct.unitCost,
+            serialNo: updatedProduct.serialNo,
+            storage: updatedProduct.storage
+          };
+
+          // Only update quantities for accessories, and maintain sold units calculation
           if (!stock.imeiNo && stock.quantity > 0 && oldProduct.quantity !== updatedProduct.quantity) {
-            const quantityDiff = updatedProduct.quantity - oldProduct.quantity;
-            await Stock.findByIdAndUpdate(updatedProduct.stockId, {
-              $inc: {
-                quantity: quantityDiff,
-                initialQuantity: quantityDiff
-              },
-              color: updatedProduct.color,
-              storage: updatedProduct.storage,
-              gstApplicable: updatedProduct.gstApplicable,
-              gstPercentage: updatedProduct.gstPercentage
-            });
+            // Calculate sold units (difference between initialQuantity and quantity)
+            const soldUnits = stock.initialQuantity - stock.quantity;
+            
+            // Update initialQuantity and quantity in the update object
+            stockUpdateData.initialQuantity = updatedProduct.quantity;
+            stockUpdateData.quantity = Math.max(0, updatedProduct.quantity - soldUnits);
           }
+          
+          // Always update the stock record, regardless of whether quantity or price changed
+          await Stock.findByIdAndUpdate(updatedProduct.stockId, stockUpdateData);
         }
       }
     }

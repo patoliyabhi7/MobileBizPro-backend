@@ -27,10 +27,10 @@ async function getPaymentsAccountReport(req, res) {
   try {
     const { businessLocation, startDate, endDate } = req.query;
 
-    const saleFilter = { ...getDateRangeMatch('saleDate', startDate, endDate, businessLocation), isDeleted: false };
-    const purchaseFilter = { ...getDateRangeMatch('purchaseDate', startDate, endDate, businessLocation), isDeleted: false };
-    const expenseFilter = { ...getDateRangeMatch('transactionDate', startDate, endDate, businessLocation), isDeleted: false };
-    const purchaseReturnFilter = { ...getDateRangeMatch('returnDate', startDate, endDate, businessLocation), isDeleted: false };
+    const saleFilter = { ...getDateRangeMatch('saleDate', startDate, endDate, businessLocation), isDeleted: { $ne: true } };
+    const purchaseFilter = { ...getDateRangeMatch('purchaseDate', startDate, endDate, businessLocation), isDeleted: { $ne: true } };
+    const expenseFilter = { ...getDateRangeMatch('transactionDate', startDate, endDate, businessLocation), isDeleted: { $ne: true } };
+    const purchaseReturnFilter = { ...getDateRangeMatch('returnDate', startDate, endDate, businessLocation), isDeleted: { $ne: true } };
 
     const [sales, purchases, expenses, purchaseReturns] = await Promise.all([
       Sale.find(saleFilter)
