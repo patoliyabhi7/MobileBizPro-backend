@@ -47,11 +47,13 @@ exports.getAllProductsByBusinessLocation = async (req, res) => {
 
     // Fetch stock quantity for each product
     const productsWithQty = await Promise.all(products.map(async (product) => {
-      const qty = await Stock.countDocuments({
+      const stocks = await Stock.find({
         product: product._id,
         businessLocation: locationId,
         status: 1
       });
+      
+      const qty = stocks.reduce((total, stock) => total + (stock.quantity || 0), 0);
 
       return {
         ...product,
