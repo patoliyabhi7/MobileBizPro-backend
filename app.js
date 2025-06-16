@@ -66,4 +66,7 @@ app.use('/api/accounts', accountRoutes);
 const invoiceRoutes = require('./routes/invoiceRoutes');
 app.use('/api/invoices', invoiceRoutes);
 
+const reportRoutes = require('./routes/reportRoutes');
+app.use('/api/reports', reportRoutes);
+
 module.exports = app;
