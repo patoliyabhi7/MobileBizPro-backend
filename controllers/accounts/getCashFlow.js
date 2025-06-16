@@ -130,7 +130,7 @@ exports.getCashFlow = async (req, res) => {
           accountId: toAccId,
           accountName: toAccName,
           isInternal: true,
-          excludeFromTotals: true, // Exclude from total credit/debit calculations
+          excludeFromTotals: false, // Include in total credit calculations
         });
         
         // Debit entry (money sent)
@@ -144,7 +144,7 @@ exports.getCashFlow = async (req, res) => {
           accountId: fromAccId,
           accountName: fromAccName,
           isInternal: true,
-          excludeFromTotals: true, // Exclude from total credit/debit calculations
+          excludeFromTotals: false, // Include in total debit calculations
         });
       }
     });
