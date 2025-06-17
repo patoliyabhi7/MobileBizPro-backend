@@ -1,6 +1,7 @@
 const Sale = require('../../models/saleModel');
 const SaleReturn = require('../../models/saleReturnModel');
 const Purchase = require('../../models/purchaseModel');
+const Stock = require('../../models/stockModel');
 const { markStockReturnedFromSale } = require('../../utils/markStockReturn');
 const generateAutoId = require('../../utils/generateAutoId');
 
@@ -10,10 +11,12 @@ exports.addSaleReturn = async (req, res) => {
     const { businessLocation, products = [], totalReturnAmount } = req.body;
     const addedBy = req.user._id;
 
+    // Validate request data
     if (!oldSaleId || !businessLocation || !products.length) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Find the original sale
     const sale = await Sale.findById(oldSaleId);
     if (!sale || sale.isDeleted) {
       return res.status(404).json({ error: 'Original sale not found' });
@@ -23,7 +26,7 @@ exports.addSaleReturn = async (req, res) => {
       return res.status(403).json({ error: 'Sale does not belong to the given business location' });
     }
 
-    // Build input products map
+    // Validate all products before processing
     const inputProductsMap = {};
     for (const item of products) {
       if (!item.productId || typeof item.unitCost !== 'number') {
@@ -44,42 +47,82 @@ exports.addSaleReturn = async (req, res) => {
       };
     }
 
-    // Find matching products in sale
-    const matchedSaleProducts = [];
+    // First validate all products before making any changes
+    const saleProductsToValidate = [];
+
     for (const saleProduct of sale.products) {
       const saleProdIdStr = saleProduct.product.toString();
       const inputProduct = inputProductsMap[saleProdIdStr];
       
-      if (inputProduct && !saleProduct.isReturn) {
-        // Validate return quantity doesn't exceed sold quantity
-        if (inputProduct.quantity > saleProduct.quantity) {
-          return res.status(400).json({
-            error: `Cannot return ${inputProduct.quantity} units of product ${saleProdIdStr}. Only ${saleProduct.quantity} were sold.`
-          });
-        }
+      if (!inputProduct) {
+        continue; // Skip products not in the return request
+      }
 
-        // Check if product has stock (was actually sold, not zero quantity)
-        if (saleProduct.quantity > 0 && saleProduct.stockId) {
-          matchedSaleProducts.push({
-            ...saleProduct.toObject(),
-            unitCost: inputProduct.unitCost,
-            quantity: inputProduct.quantity
-          });
-        } else {
+      // Check if product is already returned
+      if (saleProduct.isReturn) {
+        return res.status(400).json({
+          error: `Product ${saleProdIdStr} has already been returned on ${saleProduct.returnDate}.`
+        });
+      }
+
+      // Validate return quantity doesn't exceed sold quantity
+      if (inputProduct.quantity > saleProduct.quantity) {
+        return res.status(400).json({
+          error: `Cannot return ${inputProduct.quantity} units of product ${saleProdIdStr}. Only ${saleProduct.quantity} were sold.`
+        });
+      }
+
+      // Check if product has a valid stock entry
+      if (!saleProduct.stockId) {
+        return res.status(400).json({
+          error: `Product ${saleProdIdStr} cannot be returned as it has no associated stock.`
+        });
+      }
+
+      // Check if the product was actually sold (has quantity)
+      if (saleProduct.quantity <= 0) {
+        return res.status(400).json({
+          error: `Cannot return product ${saleProdIdStr} as it was not actually sold (zero quantity).`
+        });
+      }
+
+      // Verify stock status - for items with IMEI, need to check if they've already been returned to stock
+      if (saleProduct.imeiNo) {
+        const stock = await Stock.findById(saleProduct.stockId);
+        if (!stock) {
           return res.status(400).json({
-            error: `Cannot return product ${saleProdIdStr} as it was not actually sold (zero quantity or no stock)`
+            error: `Stock record not found for product ${saleProdIdStr} with IMEI ${saleProduct.imeiNo}.`
           });
         }
         
-        delete inputProductsMap[saleProdIdStr];
+        // For IMEI devices, status 1 means already available (possibly already returned)
+        if (stock.status === 1) {
+          return res.status(400).json({
+            error: `Product ${saleProdIdStr} with IMEI ${saleProduct.imeiNo} appears to be already returned (stock shows as available).`
+          });
+        }
       }
+      
+      saleProductsToValidate.push({
+        ...saleProduct.toObject(),
+        unitCost: inputProduct.unitCost,
+        quantity: inputProduct.quantity
+      });
+      
+      // Mark as processed
+      delete inputProductsMap[saleProdIdStr];
     }
 
+    // Check if there are any unmatched products in the input
     if (Object.keys(inputProductsMap).length > 0) {
-      return res.status(400).json({ error: 'Some products not found in sale or already returned' });
+      return res.status(400).json({ 
+        error: `Some products not found in the original sale: ${Object.keys(inputProductsMap).join(', ')}` 
+      });
     }
 
+    // All validations passed, now we can proceed with the return process
     const returnDate = new Date();
+    const matchedSaleProducts = saleProductsToValidate;
 
     // Update the sale document — mark specific products as returned
     sale.products = sale.products.map(p => {

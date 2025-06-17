@@ -16,6 +16,7 @@ exports.addPurchaseReturn = async (req, res) => {
       totalReturnAmountWithGst
     } = req.body;
 
+    // Validate request data
     if (!mongoose.Types.ObjectId.isValid(oldPurchaseId)) {
       return res.status(400).json({ error: 'Invalid Purchase ID format' });
     }
@@ -24,6 +25,7 @@ exports.addPurchaseReturn = async (req, res) => {
       return res.status(400).json({ error: 'Business location and products are required' });
     }
 
+    // Find the original purchase
     const purchase = await Purchase.findById(oldPurchaseId);
     if (!purchase || purchase.isDeleted) {
       return res.status(404).json({ error: 'Original purchase not found' });
@@ -33,54 +35,81 @@ exports.addPurchaseReturn = async (req, res) => {
       return res.status(403).json({ error: 'Purchase does not belong to the given business location' });
     }
 
-    const returnedProducts = [];
-    const stocksToConsume = [];
-
-    for (let item of products) {
+    // Validate each product before processing
+    // First, check all products are valid before making any changes
+    for (const item of products) {
       const matchedProduct = purchase.products.find(
-        p => p.product.toString() === item.productId && !p.isReturn
+        p => p.product.toString() === item.productId
       );
 
+      // Check if product exists in original purchase
       if (!matchedProduct) {
         return res.status(400).json({
-          error: `Product with ID ${item.productId} not found or already returned.`
+          error: `Product with ID ${item.productId} not found in the original purchase.`
         });
       }
 
-      // Check if product is sold using stock status
+      // Check if product is already returned
+      if (matchedProduct.isReturn) {
+        return res.status(400).json({
+          error: `Product with ID ${item.productId} has already been returned on ${matchedProduct.returnDate}.`
+        });
+      }
+
+      // Check if product exists in stock
       const stock = await Stock.findById(matchedProduct.stockId);
-      if (stock) {
-        if (stock.imeiNo && stock.status === 0) {
-          return res.status(400).json({
-            error: `Mobile with ID ${item.productId} is already sold and cannot be returned.`
-          });
-        }
-        if (!stock.imeiNo && stock.quantity === 0) {
+      if (!stock) {
+        return res.status(400).json({
+          error: `Stock entry for product with ID ${item.productId} not found.`
+        });
+      }
+
+      // For devices with IMEI, check if already sold
+      if (stock.imeiNo && stock.status === 0) {
+        return res.status(400).json({
+          error: `Mobile with IMEI ${stock.imeiNo} (ID: ${item.productId}) is already sold and cannot be returned.`
+        });
+      }
+
+      // For accessories, check if there's enough quantity available
+      const returnQuantity = item.quantity || 1;
+      if (!stock.imeiNo) {
+        if (stock.quantity === 0) {
           return res.status(400).json({
             error: `Accessory with ID ${item.productId} is completely sold and cannot be returned.`
           });
         }
+        
+        if (returnQuantity > stock.quantity) {
+          return res.status(400).json({
+            error: `Cannot return ${returnQuantity} units of accessory (ID: ${item.productId}). Only ${stock.quantity} units available in stock.`
+          });
+        }
       }
 
-      // Validate return quantity
-      const returnQuantity = item.quantity || 1;
+      // Validate return quantity against original purchase
       if (returnQuantity <= 0 || returnQuantity > matchedProduct.quantity) {
         return res.status(400).json({
-          error: `Invalid return quantity ${returnQuantity} for product ${item.productId}. Available: ${matchedProduct.quantity}`
+          error: `Invalid return quantity ${returnQuantity} for product ${item.productId}. Available from purchase: ${matchedProduct.quantity}`
         });
       }
+    }
 
-      // For accessories, check available stock quantity
-      if (!stock?.imeiNo && returnQuantity > stock.quantity) {
-        return res.status(400).json({
-          error: `Cannot return ${returnQuantity} units. Only ${stock.quantity} units available in stock.`
-        });
-      }
+    const returnedProducts = [];
+    const stocksToConsume = [];
+
+    // Process each product after validation
+    for (let item of products) {
+      const matchedProduct = purchase.products.find(
+        p => p.product.toString() === item.productId
+      );
 
       // Mark as returned in purchase
       matchedProduct.isReturn = true;
       matchedProduct.returnDate = new Date();
 
+      const returnQuantity = item.quantity || 1;
+      
       returnedProducts.push({
         product: matchedProduct.product,
         imeiNo: matchedProduct.imeiNo,
