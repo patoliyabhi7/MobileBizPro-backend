@@ -20,8 +20,8 @@ exports.listPurchaseReturns = async (req, res) => {
       .populate('businessLocation', 'name')
       .populate('addedBy', 'name')
       .populate('returnedProducts.product', 'productName')
-      .populate('returnPayments.account', 'name')
-      .populate('returnPayments.method', 'name')
+      .populate('returnPayments.account')
+      .populate('returnPayments.method')
       .lean();
 
     const formatted = returns.map(ret => ({
@@ -38,6 +38,15 @@ exports.listPurchaseReturns = async (req, res) => {
       totalGstAmount: ret.totalGstAmount || 0,
       totalReturnAmountWithGst: ret.totalReturnAmountWithGst || 0,
       paymentDue: ret.paymentDue || ret.totalReturnAmount,
+      payments: ret.returnPayments.map(payment => ({
+        account: payment.account?.name || '—',
+        method: payment.method?.name || '—',
+        amount: payment.amount || 0,
+        paidOn: payment.paidOn || '',
+        paymentRefNo: payment.paymentRefNo || '',
+        bankAccountNo: payment.bankAccountNo || '',
+        note: payment.note || '',
+      })),
       returnedProducts: ret.returnedProducts.map(prod => ({
         productName: prod.product?.productName || '—',
         serialNo: prod.serialNo || '',

@@ -33,17 +33,9 @@ exports.updatePurchaseReturn = async (req, res) => {
     // Add `addedBy` from token if not present
     req.body.addedBy = req.user?.userId || oldPurchaseReturn.addedBy;
 
-    // Recalculate payment status based on `totalReturnAmountWithGst` from request
-    const totalReturnAmount = Number(req.body.totalReturnAmountWithGst || oldPurchaseReturn.totalReturnAmountWithGst || 0);
-    const totalPaid = newPayments.reduce((acc, cur) => acc + cur.amount, 0);
-    const paymentDue = totalReturnAmount - totalPaid;
-
-    let paymentStatus = 'due';
-    if (paymentDue <= 0) paymentStatus = 'paid';
-    else if (paymentDue < totalReturnAmount) paymentStatus = 'partial';
-
-    req.body.paymentStatus = paymentStatus;
-    req.body.paymentDue = Math.max(0, paymentDue);
+    // Payment status and payment due are taken from frontend
+    req.body.paymentStatus = req.body.paymentStatus || oldPurchaseReturn.paymentStatus;
+    req.body.paymentDue = req.body.paymentDue || oldPurchaseReturn.paymentDue;
 
     // Update purchase return document
     const updatedPurchaseReturn = await PurchaseReturn.findByIdAndUpdate(
