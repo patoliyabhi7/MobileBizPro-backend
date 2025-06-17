@@ -15,6 +15,7 @@ const { getRecentPurchasePrice } = require('../controllers/purchase/getRecentPur
 const { getAllPurchasesByBusinessLocation } = require('../controllers/purchase/getAllPurchasesByBusinessLocation');
 const { getPurchaseDuePayments } = require('../controllers/purchase/getPurchaseDuePayments');
 const { updatePurchaseReturn } = require('../controllers/purchase/updatePurchaseReturn');
+const { addPurchasePayment } = require('../controllers/purchase/addpurchasepayment');
 
 router.get('/', protect, listPurchases);
 router.post('/', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), addPurchase);
@@ -22,6 +23,7 @@ router.get('/due-payments/:locationId', protect, getPurchaseDuePayments);
 router.get('/returns/:locationId', protect, listPurchaseReturns);
 router.post('/returns/:oldPurchaseId', protect, authorizeRoles('admin'), addPurchaseReturn);
 router.put('/returns/:id', protect, authorizeRoles('admin'), updatePurchaseReturn);
+router.post('/payment/:purchaseId', protect, authorizeRoles('admin'), addPurchasePayment);
 router.get('/location/:locationId', protect, getAllPurchasesByBusinessLocation);
 router.get('/recent-price/:productId', protect, getRecentPurchasePrice);
 router.get('/:id', protect, getPurchaseById);
