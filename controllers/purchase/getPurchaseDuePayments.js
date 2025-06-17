@@ -14,7 +14,11 @@ exports.getPurchaseDuePayments = async (req, res) => {
       paymentDue: { $gt: 0 },
       isDeleted: false,
       businessLocation: locationId
-    }).populate('supplier', 'firstName lastName');
+    })
+      .populate('supplier', 'firstName lastName')
+      .populate('payments.account', 'name')
+      .populate('payments.method', 'name')
+      .lean();
 
     const result = duePurchases.map(purchase => ({
       supplierName:
@@ -24,7 +28,17 @@ exports.getPurchaseDuePayments = async (req, res) => {
       supplierId: purchase.supplier?._id || null,
       referenceNo: purchase.referenceNo,
       dueAmount: purchase.paymentDue,
-      purchaseId: purchase._id
+      purchaseId: purchase._id,
+      totalAmountWithGst: purchase.totalAmountWithGst || purchase.total || 0,
+      payments: (purchase.payments || []).map(payment => ({
+        account: payment.account?.name || '—',
+        method: payment.method?.name || '—',
+        amount: payment.amount || 0,
+        paidOn: payment.paidOn || '',
+        paymentRefNo: payment.paymentRefNo || '',
+        bankAccountNo: payment.bankAccountNo || '',
+        note: payment.note || '',
+      }))
     }));
 
     res.status(200).json(result);
