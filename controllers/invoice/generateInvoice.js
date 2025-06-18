@@ -190,7 +190,7 @@ function calculateInvoiceData(sale, layout) {
   }, { quantity: 0, amount: 0 });
 
   const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-  const paymentDue = (sale.total || 0) - totalPaid;
+  const paymentDue = sale.paymentDue || 0;
   
   // Optimize number to words conversion
   const totalInWords = capitalizeFirstChar(numberToIndianWords(Math.floor(sale.total || 0))) + ' rupees only';
