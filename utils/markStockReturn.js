@@ -9,6 +9,7 @@ const markStockReturnedFromSale = async (products = []) => {
     if (!stockItem) continue;
 
     if (stockItem.imeiNo) {
+      stockItem.quantity = 1;
       stockItem.status = 1;
     } else {
       stockItem.quantity += quantity;
