@@ -33,11 +33,11 @@ exports.listPurchaseReturns = async (req, res) => {
       supplier: ret.originalPurchase?.supplier
         ? `${ret.originalPurchase.supplier.firstName} ${ret.originalPurchase.supplier.lastName}`
         : '—',
-      paymentStatus: ret.paymentStatus || 'due',
+      paymentStatus: ret.paymentStatus,
       grandTotal: ret.totalReturnAmount,
       totalGstAmount: ret.totalGstAmount || 0,
       totalReturnAmountWithGst: ret.totalReturnAmountWithGst || 0,
-      paymentDue: ret.paymentDue || ret.totalReturnAmount,
+      paymentDue: ret.paymentDue,
       payments: ret.returnPayments.map(payment => ({
         account: payment.account?.name || '—',
         method: payment.method?.name || '—',

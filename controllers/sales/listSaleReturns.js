@@ -33,10 +33,10 @@ exports.listSaleReturns = async (req, res) => {
         ? `${sr.originalSale.customer.firstName} ${sr.originalSale.customer.lastName}`
         : '—',
       location: sr.businessLocation?.name || '—',
-      paymentStatus: sr.paymentStatus || 'due',
+      paymentStatus: sr.paymentStatus,
       totalAmount: sr.totalReturnAmount,
       totalAmountWithGst: sr.totalReturnAmountWithGst,
-      paymentDue: sr.paymentDue || sr.totalReturnAmount,
+      paymentDue: sr.paymentDue,
       returnedProducts: (sr.returnedProducts || []).map(prod => ({
         productName: prod.product?.productName || '—',
         serialNo: prod.serialNo || '',
