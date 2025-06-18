@@ -14,7 +14,7 @@ const consumeStock = async (products = []) => {
       stockItem.quantity = 0;
     } else {
       if (stockItem.quantity < quantity) {
-        throw new Error(`Insufficient quantity in stock for product: ${stockId}`);
+        throw new Error(`Insufficient quantity in stock for product: ${stockId}. Available: ${stockItem.quantity}, Requested: ${quantity}`);
       }
       stockItem.quantity -= quantity;
       if(stockItem.quantity === 0) stockItem.status = 0;

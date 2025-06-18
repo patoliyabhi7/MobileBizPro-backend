@@ -7,25 +7,6 @@ const { revertAccountBalances } = require('../../utils/revertAccountBalances');
 const Stock = require('../../models/stockModel');
 const fs = require('fs');
 
-// Helper function to match products and find stockId
-const findMatchingStockId = (product, oldProducts) => {
-  let match;
-  
-  if (product.imeiNo) {
-    // Mobile match by IMEI
-    match = oldProducts.find(op => op.imeiNo === product.imeiNo);
-  } else {
-    // Accessory match by product + color (if present)
-    match = oldProducts.find(op =>
-      op.product.toString() === product.product &&
-      !op.imeiNo && // must not be a mobile
-      (!product.color || op.color === product.color)
-    );
-  }
-  
-  return match ? match.stockId : null;
-};
-
 exports.updatePurchase = async (req, res) => {
   try {
     const oldPurchase = await Purchase.findById(req.params.id);
@@ -104,18 +85,10 @@ exports.updatePurchase = async (req, res) => {
         ? JSON.parse(req.body.products)
         : req.body.products;
 
-      // Fill missing stockId from oldPurchase.products by matching keys
-      updatedProducts = updatedProducts.map(up => {
-        if (!up.stockId) {
-          up.stockId = findMatchingStockId(up, oldPurchase.products);
-        }
-        return up;
-      });
-
       // Validate updated products
       for (const item of updatedProducts) {
         if (!item.product) {
-          throw new Error('Missing product reference in one of the stock items.');
+          return res.status(400).json({ error: 'Missing product reference in one of the stock items' });
         }
 
         // For IMEI items (mobiles), quantity must be 1
@@ -131,55 +104,14 @@ exports.updatePurchase = async (req, res) => {
             error: `Accessories must have a quantity >= 0`
           });
         }
-      }
 
-      // Fill missing stockId from oldPurchase.products by matching keys
-      updatedProducts = updatedProducts.map(up => {
-        if (!up.stockId) {
-          up.stockId = findMatchingStockId(up, oldPurchase.products);
-        }
-        return up;
-      });
-
-      // Validate updated products
-      for (const item of updatedProducts) {
-        if (!item.product) {
-          throw new Error('Missing product reference in one of the stock items.');
-        }
-
-        // For IMEI items (mobiles), quantity must be 1
-        if (item.imeiNo && item.quantity !== 1) {
+        // Verify stockId is provided for existing products
+        // New products won't have stockId, they will be created later
+        if (!item.stockId && item.existingProduct) {
           return res.status(400).json({
-            error: `IMEI-based item must have quantity = 1, got ${item.quantity}`
+            error: `stockId is required for existing product ${item.product}`
           });
         }
-
-        // For accessories (no IMEI), quantity must be >= 0
-        if (!item.imeiNo && (item.quantity == null || item.quantity < 0)) {
-          return res.status(400).json({
-            error: `Accessories must have a quantity >= 0`
-          });
-        }
-      }
-
-      // Fill missing stockId from oldPurchase.products by matching keys
-      updatedProducts = updatedProducts.map(up => {
-        if (!up.stockId) {
-          up.stockId = findMatchingStockId(up, oldPurchase.products);
-        }
-        return up;
-      });
-
-      // Validate that all existing products have valid stockId
-      const missingStockId = updatedProducts.find(p => !p.stockId &&
-        oldPurchase.products.some(op =>
-          op.product.toString() === p.product &&
-          op.color === p.color &&
-          op.storage === p.storage
-        )
-      );
-      if (missingStockId) {
-        return res.status(400).json({ error: 'Each existing product must have a valid stockId' });
       }
     }
 
@@ -189,7 +121,7 @@ exports.updatePurchase = async (req, res) => {
 
     const returnedProducts = oldPurchase.products?.filter(p => p.isReturn) || [];
     const returnedStockIds = returnedProducts.map(p => String(p.stockId));
-    const updatedStockIds = updatedProducts.map(p => String(p.stockId));
+    const updatedStockIds = updatedProducts.filter(p => p.stockId).map(p => String(p.stockId));
 
     // Check for sold/returned products and apply restrictions
     for (const product of oldPurchase.products || []) {
@@ -289,10 +221,8 @@ exports.updatePurchase = async (req, res) => {
     // Revert old payments in account balances
     await revertAccountBalances(oldPurchase.payments || [], 'purchase');
 
-    // Create stock for any new products added
-    const newProducts = updatedProducts.filter(p =>
-      !oldPurchase.products?.some(op => String(op.stockId) === String(p.stockId))
-    );
+    // Create stock for any new products added (products without stockId)
+    const newProducts = updatedProducts.filter(p => !p.stockId);
 
     if (newProducts.length > 0) {
       const productsWithStockIds = await createStock(

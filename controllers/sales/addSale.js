@@ -46,70 +46,62 @@ exports.addSale = async (req, res) => {
       return res.status(400).json({ error: 'At least one product required' });
     }
 
-    // Resolve stockId for each product and validate quantities
-    const resolvedProducts = [];
-
+    // Validate stockIds and quantities for each product
+    const validatedProducts = [];
+    
     for (const p of req.body.products) {
       // Validate quantity based on product type
       const requestedQuantity = p.quantity || 1;
 
-      if (p.imeiNo) {
-        // Mobile: quantity must be 0 or 1
-        if (![0, 1].includes(requestedQuantity)) {
-          return res.status(400).json({
-            error: `IMEI-based product quantity must be 0 or 1, got ${requestedQuantity}`
-          });
-        }
-      } else {
-        // Accessory: quantity must be >= 0
-        if (requestedQuantity < 0) {
-          return res.status(400).json({
-            error: `Accessory quantity must be >= 0, got ${requestedQuantity}`
-          });
-        }
-      }
-
-      // Skip stock resolution if quantity is 0
+      // Skip stock validation if quantity is 0
       if (requestedQuantity === 0) {
-        resolvedProducts.push({
+        validatedProducts.push({
           ...p,
           quantity: 0,
-          stockId: null,
         });
         continue;
       }
-
-      // Find available stock
-      const stockQuery = {
-        product: p.product,
-        businessLocation: businessLocation,
-        quantity: { $gte: requestedQuantity }
-      };
-
-      // Add specific filters for mobiles
-      if (p.imeiNo) {
-        stockQuery.imeiNo = p.imeiNo;
-        stockQuery.status = 1; // Available mobile
-      }
-
-      // Add optional filters if provided
-      if (p.color) stockQuery.color = p.color;
-      if (p.storage) stockQuery.storage = p.storage;
-
-      const stock = await Stock.findOne(stockQuery);
-
-      if (!stock) {
-        const productType = p.imeiNo ? 'mobile' : 'accessory';
-        const identifier = p.imeiNo ? `IMEI: ${p.imeiNo}` : `Product: ${p.product}`;
-        return res.status(404).json({
-          error: `Insufficient stock for ${productType} (${identifier}). Required: ${requestedQuantity}, Available: ${stock?.quantity || 0}`
+      
+      // Verify stockId exists if needed
+      if (!p.stockId) {
+        return res.status(400).json({
+          error: `stockId is required for product ${p.product}`
         });
       }
 
-      resolvedProducts.push({
+      // Validate the stock exists and has sufficient quantity
+      const stock = await Stock.findById(p.stockId);
+      if (!stock) {
+        return res.status(404).json({
+          error: `Stock not found with ID: ${p.stockId}`
+        });
+      }
+
+      if (stock.imeiNo) {
+        // Mobile: quantity must be 1 and status must be available
+        if (requestedQuantity !== 1) {
+          return res.status(400).json({
+            error: `IMEI-based product quantity must be 1, got ${requestedQuantity}`
+          });
+        }
+        
+        if (stock.status !== 1) {
+          return res.status(400).json({
+            error: `Stock with IMEI ${stock.imeiNo} is not available for sale (status: ${stock.status})`
+          });
+        }
+      } else {
+        // Accessory: verify sufficient quantity
+        if (stock.quantity < requestedQuantity) {
+          return res.status(400).json({
+            error: `Insufficient stock for product (ID: ${p.product}). Required: ${requestedQuantity}, Available: ${stock.quantity}`
+          });
+        }
+      }
+
+      validatedProducts.push({
         ...p,
         quantity: requestedQuantity,
-        stockId: stock._id,
       });
     }
 
@@ -120,7 +112,7 @@ exports.addSale = async (req, res) => {
       addedBy,
       documents: filePaths,
       payments,
-      products: resolvedProducts,
+      products: validatedProducts,
     };
 
     // Save sale first
@@ -128,7 +120,7 @@ exports.addSale = async (req, res) => {
     await sale.save();
 
     // Consume stock (only for products with quantity > 0)
-    const productsToConsume = resolvedProducts.filter(p => p.quantity > 0 && p.stockId);
+    const productsToConsume = validatedProducts.filter(p => p.quantity > 0 && p.stockId);
     if (productsToConsume.length > 0) {
       await consumeStock(productsToConsume);
     }

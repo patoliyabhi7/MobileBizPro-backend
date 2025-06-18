@@ -132,11 +132,11 @@ exports.updateSale = async (req, res) => {
       }
     }
 
-    const resolvedProducts = [];
+    const validatedProducts = [];
     
     // First, add all returned products as-is
     returnedProducts.forEach(returnedProduct => {
-      resolvedProducts.push(returnedProduct);
+      validatedProducts.push(returnedProduct);
     });
 
     // Then process the non-returned products
@@ -156,102 +156,76 @@ exports.updateSale = async (req, res) => {
 
       const requestedQuantity = p.quantity || 1;
 
-      if (p.imeiNo) {
-        if (![0, 1].includes(requestedQuantity)) {
-          return res.status(400).json({ error: `IMEI-based product quantity must be 0 or 1, got ${requestedQuantity}` });
-        }
-      } else {
-        if (requestedQuantity < 0) {
-          return res.status(400).json({ error: `Accessory quantity must be >= 0, got ${requestedQuantity}` });
-        }
-      }
-
-      let match;
-
-      if (p.imeiNo) {
-        // Mobile match by IMEI
-        match = (oldSale.products || []).find(old =>
-          old.imeiNo === p.imeiNo &&
-          !old.isReturn
-        );
-      } else {
-        // Accessory match by product + color (if present)
-        match = (oldSale.products || []).find(old =>
-          old.product.toString() === p.product?.toString() &&
-          !old.imeiNo && // must not be a mobile
-          (!p.color || old.color === p.color) &&
-          !old.isReturn
-        );
-      }
-
-      console.log('match', match);
-
+      // Skip validation for zero quantity products
       if (requestedQuantity === 0) {
-        resolvedProducts.push({
+        validatedProducts.push({
           ...p,
           quantity: 0,
-          stockId: match?.stockId || null,
           isReturn: false,
         });
         continue;
       }
 
-      if (match) {
-        if (match.imeiNo) {
-          if (requestedQuantity !== match.quantity) {
-            return res.status(400).json({
-              error: `Cannot change quantity for mobile with IMEI ${match.imeiNo}. Original quantity: ${match.quantity}`
-            });
-          }
-        } else {
-          if (requestedQuantity > match.quantity) {
-            const additionalQty = requestedQuantity - match.quantity;
-            const stock = await Stock.findById(match.stockId);
-            if (!stock || stock.quantity < additionalQty) {
+      // Verify stockId is provided
+      if (!p.stockId) {
+        return res.status(400).json({
+          error: `stockId is required for product ${p.product}`
+        });
+      }
+
+      // Validate the stock exists
+      const stock = await Stock.findById(p.stockId);
+      if (!stock) {
+        return res.status(404).json({
+          error: `Stock not found with ID: ${p.stockId}`
+        });
+      }
+
+      // Check if this was an existing product in the sale
+      const existingProduct = (oldSale.products || []).find(old => 
+        old.stockId?.toString() === p.stockId.toString() && !old.isReturn
+      );
+
+      if (stock.imeiNo) {
+        // IMEI product validation
+        if (requestedQuantity !== 1) {
+          return res.status(400).json({
+            error: `IMEI-based product quantity must be 1, got ${requestedQuantity}`
+          });
+        }
+        
+        // If this is a new product (not in original sale), check if it's available
+        if (!existingProduct && stock.status !== 1) {
+          return res.status(400).json({
+            error: `Stock with IMEI ${stock.imeiNo} is not available for sale (status: ${stock.status})`
+          });
+        }
+      } else {
+        // For accessories, if quantity increased, check available stock
+        if (existingProduct) {
+          if (requestedQuantity > existingProduct.quantity) {
+            const additionalQty = requestedQuantity - existingProduct.quantity;
+            if (stock.quantity < additionalQty) {
               return res.status(400).json({
-                error: `Insufficient stock for accessory (Product: ${p.product}). Required: ${additionalQty}, Available: ${stock?.quantity || 0}`
+                error: `Insufficient stock for accessory (Product: ${p.product}). Required: ${additionalQty}, Available: ${stock.quantity}`
               });
             }
           }
+        } else {
+          // New accessory, check full quantity
+          if (stock.quantity < requestedQuantity) {
+            return res.status(400).json({
+              error: `Insufficient stock for accessory (Product: ${p.product}). Required: ${requestedQuantity}, Available: ${stock.quantity}`
+            });
+          }
         }
-
-        resolvedProducts.push({
-          ...p,
-          quantity: requestedQuantity,
-          stockId: match.stockId,
-          isReturn: false,
-        });
-      } else {
-        const stockQuery = {
-          product: p.product,
-          businessLocation,
-          quantity: { $gte: requestedQuantity }
-        };
-
-        if (p.imeiNo) {
-          stockQuery.imeiNo = p.imeiNo;
-          stockQuery.status = 1;
-        }
-        if (p.color) stockQuery.color = p.color;
-        if (p.storage) stockQuery.storage = p.storage;
-
-        const stock = await Stock.findOne(stockQuery);
-
-        if (!stock) {
-          const productType = p.imeiNo ? 'mobile' : 'accessory';
-          const identifier = p.imeiNo ? `IMEI: ${p.imeiNo}` : `Product: ${p.product}`;
-          return res.status(404).json({
-            error: `Insufficient stock for ${productType} (${identifier}). Required: ${requestedQuantity}, Available: ${stock?.quantity || 0}`
-          });
-        }
-
-        resolvedProducts.push({
-          ...p,
-          quantity: requestedQuantity,
-          stockId: stock._id,
-          isReturn: false,
-        });
       }
+
+      validatedProducts.push({
+        ...p,
+        quantity: requestedQuantity,
+        isReturn: false,
+      });
     }
 
     if (req.files?.length > 0 && Array.isArray(oldSale.documents)) {
@@ -293,30 +267,41 @@ exports.updateSale = async (req, res) => {
 
     const stockChanges = [];
 
+    // Process stock changes for existing products
     for (const oldProduct of (oldSale.products || [])) {
       if (!oldProduct.stockId || oldProduct.quantity <= 0 || oldProduct.isReturn) continue;
 
-      const newProduct = resolvedProducts.find(p => p.stockId?.toString() === oldProduct.stockId.toString());
+      // Find this product in the new products list
+      const newProduct = validatedProducts.find(p => p.stockId?.toString() === oldProduct.stockId.toString());
 
       if (!newProduct) {
+        // Product was removed - revert the stock
         stockChanges.push({ type: 'revert', product: oldProduct });
       } else if (!oldProduct.imeiNo && newProduct.quantity !== oldProduct.quantity) {
+        // Quantity changed for an accessory
         const diff = newProduct.quantity - oldProduct.quantity;
         if (diff > 0) {
+          // Increased quantity - consume more stock
           stockChanges.push({ type: 'consume', product: { ...newProduct, quantity: diff } });
         } else if (diff < 0) {
+          // Decreased quantity - revert some stock
           stockChanges.push({ type: 'revert', product: { ...newProduct, quantity: Math.abs(diff) } });
         }
       }
     }
 
-    for (const newProduct of resolvedProducts) {
+    // Process stock changes for new products
+    for (const newProduct of validatedProducts) {
+      if (!newProduct.stockId || newProduct.quantity <= 0 || newProduct.isReturn) continue;
+      
       const isExisting = (oldSale.products || []).some(p => p.stockId?.toString() === newProduct.stockId?.toString());
-      if (!isExisting && newProduct.quantity > 0) {
+      if (!isExisting) {
+        // New product added - consume stock
         stockChanges.push({ type: 'consume', product: newProduct });
       }
     }
 
+    // Apply all stock changes
     for (const change of stockChanges) {
       if (change.type === 'revert') {
         await revertStock([change.product]);
@@ -325,11 +310,13 @@ exports.updateSale = async (req, res) => {
       }
     }
 
+    // Revert old payments
     if (oldPaymentsClone.length > 0) {
       await revertAccountBalances(oldPaymentsClone, 'sale');
     }
 
-    req.body.products = resolvedProducts;
+    // Update the sale with validated products
+    req.body.products = validatedProducts;
 
     const updatedSale = await Sale.findByIdAndUpdate(saleId, req.body, { new: true })
       .populate('customer')
@@ -343,6 +330,7 @@ exports.updateSale = async (req, res) => {
       return res.status(404).json({ message: 'Sale not found after update' });
     }
 
+    // Apply new payments
     if (newPayments.length > 0) {
       await updateAccountBalances(newPayments, 'sale');
     }
