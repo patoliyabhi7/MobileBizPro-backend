@@ -34,8 +34,8 @@ exports.updatePurchaseReturn = async (req, res) => {
     req.body.addedBy = req.user?.userId || oldPurchaseReturn.addedBy;
 
     // Payment status and payment due are taken from frontend
-    req.body.paymentStatus = req.body.paymentStatus || oldPurchaseReturn.paymentStatus;
-    req.body.paymentDue = req.body.paymentDue || oldPurchaseReturn.paymentDue;
+    // req.body.paymentStatus = req.body.paymentStatus || oldPurchaseReturn.paymentStatus;
+    // req.body.paymentDue = req.body.paymentDue || oldPurchaseReturn.paymentDue;
 
     // Update purchase return document
     const updatedPurchaseReturn = await PurchaseReturn.findByIdAndUpdate(

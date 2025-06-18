@@ -60,8 +60,8 @@ exports.addExpensePayment = async (req, res) => {
     expense.payments = formattedPayments;
 
     // Use payment status and payment due from frontend
-    expense.paymentStatus = paymentStatus || expense.paymentStatus;
-    expense.paymentDue = paymentDue !== undefined ? paymentDue : expense.paymentDue;
+    expense.paymentStatus = paymentStatus;
+    expense.paymentDue = paymentDue;
 
     // Save the expense with new payments
     await expense.save();

@@ -60,8 +60,8 @@ exports.addSalePayment = async (req, res) => {
     sale.payments = formattedPayments;
 
     // Use payment status and payment due from frontend
-    sale.paymentStatus = paymentStatus || sale.paymentStatus;
-    sale.paymentDue = paymentDue !== undefined ? paymentDue : sale.paymentDue;
+    sale.paymentStatus = paymentStatus;
+    sale.paymentDue = paymentDue;
 
     // Save the sale with new payments
     await sale.save();
