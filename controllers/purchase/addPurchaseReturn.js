@@ -49,13 +49,6 @@ exports.addPurchaseReturn = async (req, res) => {
         });
       }
 
-      // Check if product is already returned
-      if (matchedProduct.isReturn) {
-        return res.status(400).json({
-          error: `Product with ID ${item.productId} has already been returned on ${matchedProduct.returnDate}.`
-        });
-      }
-
       // Check if product exists in stock
       const stock = await Stock.findById(matchedProduct.stockId);
       if (!stock) {
@@ -64,16 +57,41 @@ exports.addPurchaseReturn = async (req, res) => {
         });
       }
 
-      // For devices with IMEI, check if already sold
-      if (stock.imeiNo && stock.status === 0) {
-        return res.status(400).json({
-          error: `Mobile with IMEI ${stock.imeiNo} (ID: ${item.productId}) is already sold and cannot be returned.`
-        });
-      }
-
-      // For accessories, check if there's enough quantity available
       const returnQuantity = item.quantity || 1;
-      if (!stock.imeiNo) {
+      
+      // Different validation for IMEI and non-IMEI products
+      if (stock.imeiNo) {
+        // For IMEI products, check if already returned
+        if (matchedProduct.isReturn) {
+          return res.status(400).json({
+            error: `Product with IMEI ${stock.imeiNo} (ID: ${item.productId}) has already been returned on ${matchedProduct.returnDate}.`
+          });
+        }
+        
+        // Check if already sold
+        if (stock.status === 0) {
+          return res.status(400).json({
+            error: `Mobile with IMEI ${stock.imeiNo} (ID: ${item.productId}) is already sold and cannot be returned.`
+          });
+        }
+      } else {
+        // For accessories, check remaining returnable quantity
+        const alreadyReturnedQty = matchedProduct.returnedQty || 0;
+        const remainingQty = matchedProduct.quantity - alreadyReturnedQty;
+        
+        if (remainingQty <= 0) {
+          return res.status(400).json({
+            error: `Accessory with ID ${item.productId} has already been fully returned.`
+          });
+        }
+        
+        if (returnQuantity > remainingQty) {
+          return res.status(400).json({
+            error: `Cannot return ${returnQuantity} units of accessory (ID: ${item.productId}). Only ${remainingQty} units available for return.`
+          });
+        }
+        
+        // Check stock quantity as well
         if (stock.quantity === 0) {
           return res.status(400).json({
             error: `Accessory with ID ${item.productId} is completely sold and cannot be returned.`
@@ -104,11 +122,28 @@ exports.addPurchaseReturn = async (req, res) => {
         p => p.product.toString() === item.productId
       );
 
-      // Mark as returned in purchase
-      matchedProduct.isReturn = true;
-      matchedProduct.returnDate = new Date();
-
       const returnQuantity = item.quantity || 1;
+      const stock = await Stock.findById(matchedProduct.stockId);
+      
+      // Handle returns differently based on product type
+      if (stock.imeiNo) {
+        // For IMEI products (mobiles), mark as fully returned
+        matchedProduct.isReturn = true;
+        matchedProduct.returnDate = new Date();
+        matchedProduct.returnedQty = matchedProduct.quantity; // Full quantity
+      } else {
+        // For accessories, track partial returns
+        matchedProduct.returnedQty = (matchedProduct.returnedQty || 0) + returnQuantity;
+        
+        // Only mark as fully returned if all items are returned
+        if (matchedProduct.returnedQty >= matchedProduct.quantity) {
+          matchedProduct.isReturn = true;
+          matchedProduct.returnDate = new Date();
+        } else {
+          // For partial returns, don't mark isReturn as true
+          matchedProduct.partialReturnDate = new Date();
+        }
+      }
       
       returnedProducts.push({
         product: matchedProduct.product,
