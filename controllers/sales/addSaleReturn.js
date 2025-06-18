@@ -209,12 +209,15 @@ exports.addSaleReturn = async (req, res) => {
       paymentDue: totalReturnAmount,
       status: 'return',
       paymentStatus: 'due',
-      addedBy,
+      addedBy: req.user._id,
       createdFromReturn: true,
       saleReturnRef: saleReturn._id,
       totalGstAmount: saleReturn.totalGstAmount || 0,
       totalAmountWithGst: saleReturn.totalReturnAmountWithGst || 0
     });
+
+    // Update sale return with the purchase ID
+    await SaleReturn.findByIdAndUpdate(saleReturn._id, { newPurchase: purchase._id });
 
     res.status(201).json({
       message: 'Sale return processed successfully',

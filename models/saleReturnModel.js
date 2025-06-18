@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const saleReturnSchema = new mongoose.Schema({
   originalSale: { type: mongoose.Schema.Types.ObjectId, ref: 'Sale', required: true },
+  newPurchase: { type: mongoose.Schema.Types.ObjectId, ref: 'Purchase' },
   businessLocation: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessLocation', required: true },
   referenceNo: { type: String, required: true },
   returnedProducts: [{

@@ -17,6 +17,7 @@ exports.listSaleReturns = async (req, res) => {
         select: 'invoiceNo customer',
         populate: { path: 'customer', select: 'firstName lastName' }
       })
+      .populate('newPurchase', 'referenceNo paymentDue paymentStatus')
       .populate('businessLocation', 'name')
       .populate('addedBy', 'name')
       .populate('returnedProducts.product', 'productName')
@@ -33,10 +34,10 @@ exports.listSaleReturns = async (req, res) => {
         ? `${sr.originalSale.customer.firstName} ${sr.originalSale.customer.lastName}`
         : '—',
       location: sr.businessLocation?.name || '—',
-      paymentStatus: sr.paymentStatus,
+      paymentStatus: sr.newPurchase?.paymentStatus,
       totalAmount: sr.totalReturnAmount,
       totalAmountWithGst: sr.totalReturnAmountWithGst,
-      paymentDue: sr.paymentDue,
+      paymentDue: sr.newPurchase?.paymentDue,
       returnedProducts: (sr.returnedProducts || []).map(prod => ({
         productName: prod.product?.productName || '—',
         serialNo: prod.serialNo || '',
