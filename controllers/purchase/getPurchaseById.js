@@ -13,6 +13,7 @@ exports.getPurchaseById = async (req, res) => {
           select: 'name code description isAcceptIMEI'
         }
       })
+      .populate('products.stockId', 'quantity imeiNo serialNo status')
       .populate('addedBy', 'name _id')
       .populate('payments.account')
       .populate('payments.method')
