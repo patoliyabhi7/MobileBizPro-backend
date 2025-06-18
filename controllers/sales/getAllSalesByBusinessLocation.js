@@ -19,6 +19,7 @@ exports.getAllSalesByBusinessLocation = async (req, res) => {
       .populate('businessLocation')
       .populate('products.product')
       .populate('addedBy', 'name _id')
+      .populate('products.stockId', 'quantity imeiNo serialNo status')
       .populate('payments.account')
       .populate('payments.method');
 

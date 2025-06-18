@@ -31,14 +31,53 @@ exports.updateSale = async (req, res) => {
       return res.status(400).json({ error: 'At least one product required' });
     }
 
+    // Find returned products in the original sale
     const returnedProducts = (oldSale.products || []).filter(p => p.isReturn);
+    
+    // Check if any returned products have been modified or removed
     if (returnedProducts.length > 0) {
-      return res.status(400).json({ error: 'Cannot update sale with returned products. Please create a new sale.' });
+      for (const returnedProduct of returnedProducts) {
+        // Try to find the same product in the updated products list
+        const matchingUpdatedProduct = req.body.products.find(p => 
+          p.product?.toString() === returnedProduct.product.toString() && 
+          p.imeiNo === returnedProduct.imeiNo
+        );
+        
+        // If returned product is missing, throw error
+        if (!matchingUpdatedProduct) {
+          return res.status(400).json({
+            error: 'Cannot remove returned products.'
+          });
+        }
+        
+        // Check if important properties were modified
+        if (
+          matchingUpdatedProduct.quantity !== returnedProduct.quantity ||
+          matchingUpdatedProduct.unitPrice !== returnedProduct.unitPrice
+        ) {
+          return res.status(400).json({
+            error: 'Cannot modify details of returned products.'
+          });
+        }
+      }
     }
 
     const resolvedProducts = [];
+    
+    // First, add all returned products as-is
+    returnedProducts.forEach(returnedProduct => {
+      resolvedProducts.push(returnedProduct);
+    });
 
+    // Then process the non-returned products
     for (const p of req.body.products) {
+      // Skip returned products (already added)
+      const isReturnedProduct = returnedProducts.some(rp => 
+        rp.product.toString() === p.product?.toString() && 
+        rp.imeiNo === p.imeiNo
+      );
+      if (isReturnedProduct) continue;
+
       const requestedQuantity = p.quantity || 1;
 
       if (p.imeiNo) {

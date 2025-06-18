@@ -7,6 +7,7 @@ exports.getSaleById = async (req, res) => {
       .populate('businessLocation')
       .populate('addedBy', 'name _id')
       .populate('products.product')
+      .populate('products.stockId', 'quantity imeiNo serialNo status')
       .populate('payments.account')
       .populate('payments.method');
 
