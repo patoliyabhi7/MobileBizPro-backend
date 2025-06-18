@@ -27,21 +27,91 @@ exports.updateSale = async (req, res) => {
       return res.status(400).json({ error: 'businessLocation is required' });
     }
 
+    // Check if user is only updating payments or other non-product fields
+    const isUpdatingProducts = 'products' in req.body;
+    const isUpdatingOnlyPayments = !isUpdatingProducts && 'payments' in req.body;
+    
+    // Find returned products in the original sale
+    const returnedProducts = (oldSale.products || []).filter(p => p.isReturn);
+    
+    // If only updating payments, skip product validation and use existing products
+    if (isUpdatingOnlyPayments) {
+      // Process payments
+      let newPayments = [];
+      if (typeof req.body.payments === 'string') {
+        try {
+          newPayments = JSON.parse(req.body.payments);
+        } catch (e) {
+          return res.status(400).json({ error: 'Invalid payments format' });
+        }
+      } else if (Array.isArray(req.body.payments)) {
+        newPayments = req.body.payments;
+      }
+
+      const newRefNo = await generateAutoId('SALEPYMNT');
+      newPayments = newPayments.map(p => ({
+        ...p,
+        paidOn: new Date(p.paidOn),
+        paymentRefNo: newRefNo,
+        amount: Number(p.amount || 0)
+      }));
+
+      // Revert old payments
+      await revertAccountBalances(oldSale.payments || [], 'sale');
+      
+      // Update sale with new payments only, preserve existing products
+      const updateData = {
+        payments: newPayments,
+        addedBy: req.user.userId
+      };
+      
+      // Add any other non-product fields being updated
+      for (const key in req.body) {
+        if (key !== 'products' && key !== 'payments') {
+          updateData[key] = req.body[key];
+        }
+      }
+      
+      const updatedSale = await Sale.findByIdAndUpdate(saleId, updateData, { new: true })
+        .populate('customer')
+        .populate('businessLocation')
+        .populate('addedBy', 'name _id')
+        .populate('products.product')
+        .populate('payments.account')
+        .populate('payments.method');
+
+      // Update account balances with new payments
+      if (newPayments.length > 0) {
+        await updateAccountBalances(newPayments, 'sale');
+      }
+
+      return res.status(200).json({ 
+        message: 'Sale payments updated successfully', 
+        sale: updatedSale 
+      });
+    }
+    
+    // If updating products, validate required products
     if (!Array.isArray(req.body.products) || req.body.products.length === 0) {
       return res.status(400).json({ error: 'At least one product required' });
     }
-
-    // Find returned products in the original sale
-    const returnedProducts = (oldSale.products || []).filter(p => p.isReturn);
     
     // Check if any returned products have been modified or removed
     if (returnedProducts.length > 0) {
       for (const returnedProduct of returnedProducts) {
         // Try to find the same product in the updated products list
-        const matchingUpdatedProduct = req.body.products.find(p => 
-          p.product?.toString() === returnedProduct.product.toString() && 
-          p.imeiNo === returnedProduct.imeiNo
-        );
+        const matchingUpdatedProduct = req.body.products.find(p => {
+          // For mobile phones (with IMEI), match by product and IMEI
+          if (returnedProduct.imeiNo) {
+            return p.product?.toString() === returnedProduct.product.toString() && 
+                   p.imeiNo === returnedProduct.imeiNo;
+          } 
+          // For accessories (without IMEI), match by product and color
+          else {
+            return p.product?.toString() === returnedProduct.product.toString() && 
+                   p.color === returnedProduct.color;
+          }
+        });
         
         // If returned product is missing, throw error
         if (!matchingUpdatedProduct) {
@@ -72,10 +142,16 @@ exports.updateSale = async (req, res) => {
     // Then process the non-returned products
     for (const p of req.body.products) {
       // Skip returned products (already added)
-      const isReturnedProduct = returnedProducts.some(rp => 
-        rp.product.toString() === p.product?.toString() && 
-        rp.imeiNo === p.imeiNo
-      );
+      const isReturnedProduct = returnedProducts.some(rp => {
+        // For mobile phones (with IMEI)
+        if (rp.imeiNo) {
+          return rp.product.toString() === p.product?.toString() && rp.imeiNo === p.imeiNo;
+        } 
+        // For accessories (without IMEI)
+        else {
+          return rp.product.toString() === p.product?.toString() && rp.color === p.color;
+        }
+      });
       if (isReturnedProduct) continue;
 
       const requestedQuantity = p.quantity || 1;
