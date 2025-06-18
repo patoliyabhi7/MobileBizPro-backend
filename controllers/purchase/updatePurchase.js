@@ -131,21 +131,6 @@ exports.updatePurchase = async (req, res) => {
             error: `Accessories must have a quantity >= 0`
           });
         }
-
-        // Check for duplicate IMEI if it's a new item or IMEI was changed
-        if (item.imeiNo) {
-          const existingIMEI = await Stock.findOne({
-            imeiNo: item.imeiNo,
-            status: 1
-          });
-
-          if (
-            existingIMEI &&
-            (!item.stockId || String(existingIMEI._id) !== String(item.stockId))
-          ) {
-            throw new Error(`Duplicate IMEI ${item.imeiNo} already exists in another stock item.`);
-          }
-        }
       }
 
       // Fill missing stockId from oldPurchase.products by matching keys
@@ -174,21 +159,6 @@ exports.updatePurchase = async (req, res) => {
           return res.status(400).json({
             error: `Accessories must have a quantity >= 0`
           });
-        }
-
-        // Check for duplicate IMEI if it's a new item or IMEI was changed
-        if (item.imeiNo) {
-          const existingIMEI = await Stock.findOne({
-            imeiNo: item.imeiNo,
-            status: 1
-          });
-
-          if (
-            existingIMEI &&
-            (!item.stockId || String(existingIMEI._id) !== String(item.stockId))
-          ) {
-            throw new Error(`Duplicate IMEI ${item.imeiNo} already exists in another stock item.`);
-          }
         }
       }
 

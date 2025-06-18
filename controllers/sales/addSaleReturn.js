@@ -2,7 +2,6 @@ const Sale = require('../../models/saleModel');
 const SaleReturn = require('../../models/saleReturnModel');
 const Purchase = require('../../models/purchaseModel');
 const Stock = require('../../models/stockModel');
-const { markStockReturnedFromSale } = require('../../utils/markStockReturn');
 const generateAutoId = require('../../utils/generateAutoId');
 const createStock = require('../../utils/createStock');
 
@@ -135,14 +134,8 @@ exports.addSaleReturn = async (req, res) => {
     });
     await sale.save();
 
-    // Separate IMEI and non-IMEI products
-    const imeiProducts = matchedSaleProducts.filter(p => p.imeiNo);
-    const nonImeiProducts = matchedSaleProducts.filter(p => !p.imeiNo);
-
-    // For IMEI products: Mark stock as available using existing stock entries
-    if (imeiProducts.length > 0) {
-      await markStockReturnedFromSale(imeiProducts, sale._id);
-    }
+    // Skip marking stock as available - we'll create new stock entries via the purchase instead
+    // This ensures returned items become new inventory rather than modifying existing stock
 
     const refNo = await generateAutoId('SALERET');
 
@@ -173,31 +166,31 @@ exports.addSaleReturn = async (req, res) => {
       addedBy
     });
     
-    // For non-IMEI products: Create new stock entries
-    let nonImeiProductsWithNewStock = [];
-    if (nonImeiProducts.length > 0) {
-      // Prepare products for new stock creation
-      const productsForStock = nonImeiProducts.map(p => ({
-        product: p.product,
-        serialNo: p.serialNo,
-        color: p.color,
-        storage: p.storage,
-        unitCost: p.unitCost,
-        quantity: p.quantity,
-        gstApplicable: p.gstApplicable || false,
-        gstPercentage: p.gstPercentage || 18
-      }));
-      
-      // Create new stock entries for non-IMEI returned products
-      nonImeiProductsWithNewStock = await createStock(productsForStock, null, businessLocation);
-    }
+    // Prepare products for new stock creation
+    const productsForStock = matchedSaleProducts.map(p => ({
+      product: p.product,
+      serialNo: p.serialNo,
+      imeiNo: p.imeiNo,
+      color: p.color,
+      storage: p.storage,
+      unitCost: p.unitCost,
+      quantity: p.quantity,
+      gstApplicable: p.gstApplicable || false,
+      gstPercentage: p.gstPercentage || 18
+    }));
+    
+    // Create new stock entries for returned products
+    const productsWithNewStock = await createStock(productsForStock, null, businessLocation);
 
-    // Prepare products for purchase creation
-    const purchaseProducts = [
-      // IMEI products with their original stock IDs that were marked as returned
-      ...imeiProducts.map(p => ({
+    // Create Purchase entry with the newly created stock IDs
+    const purchase = await Purchase.create({
+      referenceNo: refNo,
+      supplier: sale.customer || null,
+      purchaseDate: returnDate,
+      businessLocation,
+      products: productsWithNewStock.map((p, index) => ({
         product: p.product,
-        stockId: p.stockId, // Original stock ID that was updated
+        stockId: p.stockId, // New stock ID from createStock
         color: p.color,
         storage: p.storage,
         imeiNo: p.imeiNo,
@@ -209,38 +202,9 @@ exports.addSaleReturn = async (req, res) => {
         returnDate,
         gstApplicable: p.gstApplicable || false,
         gstPercentage: p.gstPercentage || 18,
-        gstAmount: p.gstAmount || 0,
-        lineTotalWithGst: p.lineTotalWithGst || (p.unitCost * p.quantity),
+        gstAmount: matchedSaleProducts[index]?.gstAmount || 0,
+        lineTotalWithGst: matchedSaleProducts[index]?.lineTotalWithGst || (p.unitCost * p.quantity),
       })),
-      
-      // Non-IMEI products with their new stock IDs
-      ...nonImeiProductsWithNewStock.map((p, index) => {
-        const originalProduct = nonImeiProducts.find(np => np.product.toString() === p.product.toString() && np.color === p.color);
-        return {
-          product: p.product,
-          stockId: p.stockId, // New stock ID from createStock
-          color: p.color,
-          storage: p.storage,
-          unitCost: p.unitCost,
-          lineTotal: p.unitCost * p.quantity,
-          quantity: p.quantity,
-          isReturn: true,
-          returnDate,
-          gstApplicable: p.gstApplicable || false,
-          gstPercentage: p.gstPercentage || 18,
-          gstAmount: originalProduct?.gstAmount || 0,
-          lineTotalWithGst: originalProduct?.lineTotalWithGst || (p.unitCost * p.quantity),
-        };
-      })
-    ];
-
-    // Create Purchase entry with the appropriate stock IDs
-    const purchase = await Purchase.create({
-      referenceNo: refNo,
-      supplier: sale.customer || null,
-      purchaseDate: returnDate,
-      businessLocation,
-      products: purchaseProducts,
       total: totalReturnAmount,
       paymentDue: totalReturnAmount,
       status: 'return',

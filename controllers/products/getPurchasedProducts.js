@@ -73,6 +73,7 @@ exports.getPurchasedProducts = async (req, res) => {
         qty_available: stock.quantity,
         availabel_to_sell: stock.quantity,
         brand_name: product.brand?.name || null,
+        stock_id: stock._id,
       });
     }
 
