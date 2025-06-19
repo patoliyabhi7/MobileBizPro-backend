@@ -12,6 +12,7 @@ const { getSalePaymentReport } = require('../controllers/reports/salePaymentRepo
 const { getPurchasePaymentReport } = require('../controllers/reports/purchasePaymentReport');
 const { getTrendingProductsReport } = require('../controllers/reports/trendingProductsReport');
 const { getProductPurchaseReport } = require('../controllers/reports/productPurchaseReport');
+const { getProductSellReport } = require('../controllers/reports/productSellReport');
 
 router.get('/profit-loss', protect, getProfitLossReport);
 router.get('/purchase-sale', protect, getPurchaseSaleReport);
@@ -22,5 +23,6 @@ router.get('/sale-payment', protect, getSalePaymentReport);
 router.get('/purchase-payment', protect, getPurchasePaymentReport);
 router.get('/trending-products', protect, getTrendingProductsReport);
 router.get('/product-purchase', protect, getProductPurchaseReport);
+router.get('/product-sell', protect, getProductSellReport);
 
 module.exports = router;
