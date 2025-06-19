@@ -41,7 +41,7 @@ exports.getViewContactReport = async (req, res) => {
 
     // Build location filter if provided
     const locationFilter = businessLocationId && businessLocationId !== 'all' 
-      ? { businessLocation: mongoose.Types.ObjectId(businessLocationId) } 
+      ? { businessLocation: new mongoose.Types.ObjectId(businessLocationId) } 
       : {};
 
     // Switch based on the requested tab
@@ -73,7 +73,7 @@ async function getLedgerTab(contact, start, end, locationFilter, format, res) {
   try {
     // Fetch all purchases for this contact
     const purchases = await Purchase.find({
-      supplier: mongoose.Types.ObjectId(contact._id),
+      supplier: new mongoose.Types.ObjectId(contact._id),
       purchaseDate: { $gte: start, $lte: end },
       isDeleted: { $ne: true },
       ...locationFilter
@@ -85,7 +85,7 @@ async function getLedgerTab(contact, start, end, locationFilter, format, res) {
 
     // Fetch all purchase returns for this contact
     const purchaseReturns = await PurchaseReturn.find({
-      supplier: mongoose.Types.ObjectId(contact._id),
+      supplier: new mongoose.Types.ObjectId(contact._id),
       returnDate: { $gte: start, $lte: end },
       isDeleted: { $ne: true },
       ...locationFilter
@@ -249,7 +249,7 @@ async function getPurchasesTab(contact, start, end, locationFilter, res) {
   try {
     // Fetch all purchases for this contact
     const purchases = await Purchase.find({
-      supplier: mongoose.Types.ObjectId(contact._id),
+      supplier: new mongoose.Types.ObjectId(contact._id),
       purchaseDate: { $gte: start, $lte: end },
       isDeleted: { $ne: true },
       ...locationFilter
@@ -312,7 +312,7 @@ async function getStockReportTab(contact, locationFilter, res) {
   try {
     // Get purchases for this supplier to find products
     const purchases = await Purchase.find({
-      supplier: mongoose.Types.ObjectId(contact._id),
+      supplier: new mongoose.Types.ObjectId(contact._id),
       isDeleted: { $ne: true },
       ...locationFilter
     })
@@ -398,7 +398,7 @@ async function getSalesTab(contact, start, end, locationFilter, paymentStatus, r
     
     // Fetch sales for this customer
     const sales = await Sale.find({
-      customer: mongoose.Types.ObjectId(contact._id),
+      customer: new mongoose.Types.ObjectId(contact._id),
       saleDate: { $gte: start, $lte: end },
       isDeleted: { $ne: true },
       ...locationFilter,
@@ -478,7 +478,7 @@ async function getPaymentsTab(contact, start, end, locationFilter, res) {
   try {
     // Fetch all purchases with payments for this contact
     const purchases = await Purchase.find({
-      supplier: mongoose.Types.ObjectId(contact._id),
+      supplier: new mongoose.Types.ObjectId(contact._id),
       'payments.paidOn': { $gte: start, $lte: end },
       isDeleted: { $ne: true },
       ...locationFilter

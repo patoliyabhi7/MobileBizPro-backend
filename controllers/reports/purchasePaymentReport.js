@@ -24,11 +24,11 @@ exports.getPurchasePaymentReport = async (req, res) => {
 
     // Build additional filters
     if (supplierId && supplierId !== 'All') {
-      paymentFilter.supplier = mongoose.Types.ObjectId(supplierId);
+      paymentFilter.supplier = new mongoose.Types.ObjectId(supplierId);
     }
 
     if (locationId && locationId !== 'All') {
-      paymentFilter.businessLocation = mongoose.Types.ObjectId(locationId);
+      paymentFilter.businessLocation = new mongoose.Types.ObjectId(locationId);
     }
 
     // Fetch purchases that have payments within the date range

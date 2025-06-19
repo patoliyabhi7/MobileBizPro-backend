@@ -40,12 +40,12 @@ exports.getProductSellReport = async (req, res) => {
 
     // Customer filter
     if (customerId && customerId !== 'All') {
-      filters.customer = mongoose.Types.ObjectId(customerId);
+      filters.customer = new mongoose.Types.ObjectId(customerId);
     }
 
     // Location filter
     if (locationId && locationId !== 'All') {
-      filters.businessLocation = mongoose.Types.ObjectId(locationId);
+      filters.businessLocation = new mongoose.Types.ObjectId(locationId);
     }
 
     // Fetch sales matching filters

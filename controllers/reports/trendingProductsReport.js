@@ -52,22 +52,22 @@ exports.getTrendingProductsReport = async (req, res) => {
 
     // Apply location filter if provided
     if (locationId && locationId !== 'All') {
-      pipeline[0].$match.businessLocation = mongoose.Types.ObjectId(locationId);
+      pipeline[0].$match.businessLocation =  new mongoose.Types.ObjectId(locationId);
     }
 
     // Apply additional filters on the product details
     let productFilters = {};
 
     if (categoryId && categoryId !== 'All') {
-      productFilters['productDetails.category'] = mongoose.Types.ObjectId(categoryId);
+      productFilters['productDetails.category'] = new mongoose.Types.ObjectId(categoryId);
     }
 
     if (subcategoryId && subcategoryId !== 'All') {
-      productFilters['productDetails.subCategory'] = mongoose.Types.ObjectId(subcategoryId);
+      productFilters['productDetails.subCategory'] = new mongoose.Types.ObjectId(subcategoryId);
     }
 
     if (brandId && brandId !== 'All') {
-      productFilters['productDetails.brand'] = mongoose.Types.ObjectId(brandId);
+      productFilters['productDetails.brand'] = new mongoose.Types.ObjectId(brandId);
     }
 
     if (unitId && unitId !== 'All') {

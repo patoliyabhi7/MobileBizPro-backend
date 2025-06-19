@@ -33,16 +33,16 @@ exports.getProductPurchaseReport = async (req, res) => {
 
     // Supplier filter
     if (supplierId && supplierId !== 'All') {
-      filters.supplier = mongoose.Types.ObjectId(supplierId);
+      filters.supplier = new mongoose.Types.ObjectId(supplierId);
     }
 
     // Location filter
     if (locationId && locationId !== 'All') {
-      filters.businessLocation = mongoose.Types.ObjectId(locationId);
+      filters.businessLocation = new mongoose.Types.ObjectId(locationId);
     }
 
     // Brand filter will be applied via an aggregation step
-    const brandFilter = brandId && brandId !== 'All' ? mongoose.Types.ObjectId(brandId) : null;
+    const brandFilter = brandId && brandId !== 'All' ? new mongoose.Types.ObjectId(brandId) : null;
 
     // Fetch all purchases that match the filters
     const purchases = await Purchase.find(filters)

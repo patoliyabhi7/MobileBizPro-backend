@@ -29,7 +29,7 @@ exports.getStockHistoryReport = async (req, res) => {
     // Build location filter
     let locationFilter = {};
     if (locationId && locationId !== 'All') {
-      locationFilter.businessLocation = mongoose.Types.ObjectId(locationId);
+      locationFilter.businessLocation = new mongoose.Types.ObjectId(locationId);
     }
 
     // Fetch location if specified
@@ -43,7 +43,7 @@ exports.getStockHistoryReport = async (req, res) => {
 
     // Get all purchases for this product
     const purchases = await Purchase.find({
-      'products.product': mongoose.Types.ObjectId(productId),
+      'products.product': new mongoose.Types.ObjectId(productId),
       isDeleted: { $ne: true },
       ...locationFilter
     })
@@ -53,7 +53,7 @@ exports.getStockHistoryReport = async (req, res) => {
 
     // Get all sales for this product
     const sales = await Sale.find({
-      'products.product': mongoose.Types.ObjectId(productId),
+      'products.product': new mongoose.Types.ObjectId(productId),
       isDeleted: { $ne: true },
       ...locationFilter
     })
@@ -63,7 +63,7 @@ exports.getStockHistoryReport = async (req, res) => {
 
     // Get all sale returns for this product
     const saleReturns = await SaleReturn.find({
-      'products.product': mongoose.Types.ObjectId(productId),
+      'products.product': new mongoose.Types.ObjectId(productId),
       isDeleted: { $ne: true },
       ...locationFilter
     })
@@ -73,7 +73,7 @@ exports.getStockHistoryReport = async (req, res) => {
 
     // Get all purchase returns for this product
     const purchaseReturns = await PurchaseReturn.find({
-      'products.product': mongoose.Types.ObjectId(productId),
+      'products.product': new mongoose.Types.ObjectId(productId),
       isDeleted: { $ne: true },
       ...locationFilter
     })

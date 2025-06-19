@@ -20,8 +20,8 @@ exports.getSalesRepresentativeReport = async (req, res) => {
     end.setHours(23, 59, 59, 999); // Set to end of day
 
     // Build filters
-    const userFilter = userId && userId !== 'All Users' ? { addedBy: mongoose.Types.ObjectId(userId) } : {};
-    const locationFilter = locationId && locationId !== 'All locations' ? { businessLocation: mongoose.Types.ObjectId(locationId) } : {};
+    const userFilter = userId && userId !== 'All Users' ? { addedBy: new mongoose.Types.ObjectId(userId) } : {};
+    const locationFilter = locationId && locationId !== 'All locations' ? { businessLocation: new mongoose.Types.ObjectId(locationId) } : {};
     const dateRange = { $gte: start, $lte: end };
 
     // Helper function to add common filters (isDeleted, userFilter, locationFilter)

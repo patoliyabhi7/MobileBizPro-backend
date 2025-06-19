@@ -24,18 +24,18 @@ exports.getStockReport = async (req, res) => {
 
     // Location filter
     if (locationId && locationId !== 'All') {
-      productFilters.businessLocation = mongoose.Types.ObjectId(locationId);
+      productFilters.businessLocation = new mongoose.Types.ObjectId(locationId);
     }
 
     // Category filter
     if (categoryId && categoryId !== 'All') {
       // For main categories
-      productFilters.category = mongoose.Types.ObjectId(categoryId);
+      productFilters.category = new mongoose.Types.ObjectId(categoryId);
     }
 
     // Brand filter
     if (brandId && brandId !== 'All') {
-      productFilters.brand = mongoose.Types.ObjectId(brandId);
+      productFilters.brand = new mongoose.Types.ObjectId(brandId);
     }
 
     // Unit filter
@@ -47,14 +47,14 @@ exports.getStockReport = async (req, res) => {
     if (subcategoryId && subcategoryId !== 'All') {
       // Find all categories with this parent
       const categories = await Category.find({ 
-        parentCategory: mongoose.Types.ObjectId(subcategoryId),
+        parentCategory: new mongoose.Types.ObjectId(subcategoryId),
         isDeleted: { $ne: true } 
       }).select('_id');
 
       const categoryIds = categories.map(cat => cat._id);
       
       // Add the subcategory itself as it might have products directly
-      categoryIds.push(mongoose.Types.ObjectId(subcategoryId));
+      categoryIds.push(new mongoose.Types.ObjectId(subcategoryId));
       
       // Update product filters to search in all these categories
       productFilters.category = { $in: categoryIds };

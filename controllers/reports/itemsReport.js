@@ -37,17 +37,17 @@ exports.getItemsReport = async (req, res) => {
 
     // Supplier filter
     if (supplierId && supplierId !== 'All') {
-      purchaseFilters.supplier = mongoose.Types.ObjectId(supplierId);
+      purchaseFilters.supplier = new mongoose.Types.ObjectId(supplierId);
     }
 
     // Location filter
     if (locationId && locationId !== 'All') {
-      purchaseFilters.businessLocation = mongoose.Types.ObjectId(locationId);
+      purchaseFilters.businessLocation = new mongoose.Types.ObjectId(locationId);
     }
 
     // Build category filter (will be applied after fetching data)
     const categoryFilter = categoryId && categoryId !== 'All' 
-      ? mongoose.Types.ObjectId(categoryId) 
+      ? new mongoose.Types.ObjectId(categoryId) 
       : null;
 
     // Fetch purchases with all their details
@@ -81,7 +81,7 @@ exports.getItemsReport = async (req, res) => {
 
     // Customer filter
     if (customerId && customerId !== 'All') {
-      saleFilters.customer = mongoose.Types.ObjectId(customerId);
+      saleFilters.customer = new mongoose.Types.ObjectId(customerId);
     }
 
     // Fetch sales data if any sale filters are applied

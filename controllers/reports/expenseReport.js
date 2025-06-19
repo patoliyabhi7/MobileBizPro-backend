@@ -20,12 +20,12 @@ exports.getExpenseReport = async (req, res) => {
 
     // Location filter
     if (locationId && locationId !== 'All locations') {
-      filters.businessLocation = mongoose.Types.ObjectId(locationId);
+      filters.businessLocation = new mongoose.Types.ObjectId(locationId);
     }
 
     // Category filter
     if (categoryId && categoryId !== 'All') {
-      filters.expenseCategory = mongoose.Types.ObjectId(categoryId);
+      filters.expenseCategory = new mongoose.Types.ObjectId(categoryId);
     }
 
     // Fetch expenses with the applied filters
