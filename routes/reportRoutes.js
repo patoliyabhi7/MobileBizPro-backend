@@ -14,6 +14,8 @@ const { getTrendingProductsReport } = require('../controllers/reports/trendingPr
 const { getProductPurchaseReport } = require('../controllers/reports/productPurchaseReport');
 const { getProductSellReport } = require('../controllers/reports/productSellReport');
 const { getItemsReport } = require('../controllers/reports/itemsReport');
+const { getStockReport } = require('../controllers/reports/stockReport');
+const { getStockHistoryReport } = require('../controllers/reports/stockHistoryReport');
 
 router.get('/profit-loss', protect, getProfitLossReport);
 router.get('/purchase-sale', protect, getPurchaseSaleReport);
@@ -26,5 +28,7 @@ router.get('/trending-products', protect, getTrendingProductsReport);
 router.get('/product-purchase', protect, getProductPurchaseReport);
 router.get('/product-sell', protect, getProductSellReport);
 router.get('/items', protect, getItemsReport);
+router.get('/stock', protect, getStockReport);
+router.get('/stock-history', protect, getStockHistoryReport);
 
 module.exports = router;
