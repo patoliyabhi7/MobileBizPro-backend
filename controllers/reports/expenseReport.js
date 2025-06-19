@@ -97,22 +97,3 @@ exports.getExpenseReport = async (req, res) => {
   }
 };
 
-exports.getExpenseCategories = async (req, res) => {
-  try {
-    const categories = await ExpenseCategory.find({ isDeleted: { $ne: true } }, 'name');
-    res.status(200).json(categories);
-  } catch (err) {
-    console.error('Error fetching expense categories:', err);
-    res.status(500).json({ error: err.message });
-  }
-};
-
-exports.getBusinessLocations = async (req, res) => {
-  try {
-    const locations = await BusinessLocation.find({ isDeleted: { $ne: true } }, 'name');
-    res.status(200).json(locations);
-  } catch (err) {
-    console.error('Error fetching business locations:', err);
-    res.status(500).json({ error: err.message });
-  }
-};

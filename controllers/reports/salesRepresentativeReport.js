@@ -175,22 +175,4 @@ exports.getSalesRepresentativeReport = async (req, res) => {
   }
 };
 
-exports.getUsers = async (req, res) => {
-  try {
-    const users = await User.find({ isDeleted: false }, 'name _id');
-    res.json(users);
-  } catch (error) {
-    console.error('Error fetching users for report:', error);
-    res.status(500).json({ error: error.message });
-  }
-};
 
-exports.getLocations = async (req, res) => {
-  try {
-    const locations = await BusinessLocation.find({ isDeleted: false }, 'name _id');
-    res.json(locations);
-  } catch (error) {
-    console.error('Error fetching business locations for report:', error);
-    res.status(500).json({ error: error.message });
-  }
-};
