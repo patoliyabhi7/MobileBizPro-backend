@@ -94,11 +94,7 @@ exports.getStockReport = async (req, res) => {
       potentialProfit: 0,
       totalUnitSold: 0,
       totalUnitTransferred: 0,
-      totalUnitAdjusted: 0,
-      customField1Total: 0,
-      customField2Total: 0,
-      customField3Total: 0,
-      customField4Total: 0
+      totalUnitAdjusted: 0
     };
 
     for (const product of products) {
@@ -133,12 +129,6 @@ exports.getStockReport = async (req, res) => {
       const totalUnitTransferred = 0;
       const totalUnitAdjusted = 0;
       
-      // Custom fields (would be replaced with actual values in a real implementation)
-      const customField1 = 0;
-      const customField2 = 0;
-      const customField3 = 0;
-      const customField4 = 0;
-      
       // Add to totals
       totals.currentStock += currentStock;
       totals.currentStockValuePurchase += currentStockValuePurchase;
@@ -147,10 +137,6 @@ exports.getStockReport = async (req, res) => {
       totals.totalUnitSold += totalUnitSold;
       totals.totalUnitTransferred += totalUnitTransferred;
       totals.totalUnitAdjusted += totalUnitAdjusted;
-      totals.customField1Total += customField1;
-      totals.customField2Total += customField2;
-      totals.customField3Total += customField3;
-      totals.customField4Total += customField4;
 
       // Build stock item object
       stockItems.push({
@@ -166,11 +152,7 @@ exports.getStockReport = async (req, res) => {
         potentialProfit,
         totalUnitSold,
         totalUnitTransferred,
-        totalUnitAdjusted,
-        customField1,
-        customField2,
-        customField3,
-        customField4
+        totalUnitAdjusted
       });
     }
 
