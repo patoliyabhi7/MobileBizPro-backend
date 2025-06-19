@@ -58,36 +58,23 @@ exports.addSaleReturn = async (req, res) => {
         continue; // Skip products not in the return request
       }
 
-      // Check if product is already returned
-      if (saleProduct.isReturn) {
-        return res.status(400).json({
-          error: `Product ${saleProdIdStr} has already been returned on ${saleProduct.returnDate}.`
-        });
-      }
-
-      // Validate return quantity doesn't exceed sold quantity
-      if (inputProduct.quantity > saleProduct.quantity) {
-        return res.status(400).json({
-          error: `Cannot return ${inputProduct.quantity} units of product ${saleProdIdStr}. Only ${saleProduct.quantity} were sold.`
-        });
-      }
-
-      // Check if product has a valid stock entry
-      if (!saleProduct.stockId) {
-        return res.status(400).json({
-          error: `Product ${saleProdIdStr} cannot be returned as it has no associated stock.`
-        });
-      }
-
-      // Check if the product was actually sold (has quantity)
-      if (saleProduct.quantity <= 0) {
-        return res.status(400).json({
-          error: `Cannot return product ${saleProdIdStr} as it was not actually sold (zero quantity).`
-        });
-      }
-
-      // Verify stock status - for items with IMEI, need to check if they've already been returned to stock
+      // Handle IMEI-based products and accessories differently
       if (saleProduct.imeiNo) {
+        // For IMEI products, check if already returned
+        if (saleProduct.isReturn) {
+          return res.status(400).json({
+            error: `Product ${saleProdIdStr} with IMEI ${saleProduct.imeiNo} has already been returned on ${saleProduct.returnDate}.`
+          });
+        }
+
+        // Check if product has a valid stock entry
+        if (!saleProduct.stockId) {
+          return res.status(400).json({
+            error: `Product ${saleProdIdStr} cannot be returned as it has no associated stock.`
+          });
+        }
+
+        // Verify stock status - for items with IMEI, need to check if they've already been returned to stock
         const stock = await Stock.findById(saleProduct.stockId);
         if (!stock) {
           return res.status(400).json({
@@ -101,6 +88,30 @@ exports.addSaleReturn = async (req, res) => {
             error: `Product ${saleProdIdStr} with IMEI ${saleProduct.imeiNo} appears to be already returned (stock shows as available).`
           });
         }
+      } else {
+        // For accessories/non-IMEI products, check remaining quantity that can be returned
+        const alreadyReturnedQty = saleProduct.noOfReturnProduct || 0;
+        const remainingQty = saleProduct.quantity - alreadyReturnedQty;
+
+        if (remainingQty <= 0) {
+          return res.status(400).json({
+            error: `Product ${saleProdIdStr} has already been fully returned (${alreadyReturnedQty} of ${saleProduct.quantity}).`
+          });
+        }
+
+        // Validate return quantity doesn't exceed remaining quantity
+        if (inputProduct.quantity > remainingQty) {
+          return res.status(400).json({
+            error: `Cannot return ${inputProduct.quantity} units of product ${saleProdIdStr}. Only ${remainingQty} of ${saleProduct.quantity} are available for return.`
+          });
+        }
+      }
+
+      // Check if the product was actually sold (has quantity)
+      if (saleProduct.quantity <= 0) {
+        return res.status(400).json({
+          error: `Cannot return product ${saleProdIdStr} as it was not actually sold (zero quantity).`
+        });
       }
       
       saleProductsToValidate.push({
@@ -124,11 +135,33 @@ exports.addSaleReturn = async (req, res) => {
     const returnDate = new Date();
     const matchedSaleProducts = saleProductsToValidate;
 
-    // Update the sale document — mark specific products as returned
+    // Update the sale document - mark specific products as returned or update noOfReturnProduct
     sale.products = sale.products.map(p => {
       const matched = matchedSaleProducts.find(mp => mp._id.toString() === p._id.toString());
       if (matched) {
-        return { ...p.toObject(), isReturn: true, returnDate };
+        if (p.imeiNo) {
+          // For IMEI products - mark as fully returned and update noOfReturnProduct
+          return { 
+            ...p.toObject(), 
+            isReturn: true, 
+            returnDate,
+            noOfReturnProduct: p.quantity // Set to full quantity for IMEI products
+          };
+        } else {
+          // For accessories - update noOfReturnProduct count
+          const currentReturnedQty = p.noOfReturnProduct || 0;
+          const newReturnedQty = currentReturnedQty + matched.quantity;
+          
+          // If all quantity returned, also mark isReturn as true
+          const isFullyReturned = newReturnedQty >= p.quantity;
+          
+          return { 
+            ...p.toObject(), 
+            noOfReturnProduct: newReturnedQty,
+            isReturn: isFullyReturned,
+            returnDate: isFullyReturned ? returnDate : p.returnDate
+          };
+        }
       }
       return p;
     });

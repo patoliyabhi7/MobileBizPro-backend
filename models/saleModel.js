@@ -13,6 +13,7 @@ const saleProductSchema = new mongoose.Schema({
   stockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Stock' },
   isReturn: { type: Boolean, default: false },
   returnDate: { type: Date },
+  noOfReturnProduct: { type: Number, default: 0 },
   gstApplicable: { type: Boolean, default: false },
   gstPercentage: { type: Number, default: 18 },
   gstAmount: { type: Number, default: 0 },
