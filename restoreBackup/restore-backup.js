@@ -1,12 +1,13 @@
 const { MongoClient } = require('mongodb');
+const { EJSON } = require('bson'); // ✅ Required to parse EJSON
 const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const unzipper = require('unzipper');
 require('dotenv').config();
 
-const backupRoot = path.join(__dirname, 'backups'); 
-const extractDir = path.join(__dirname, 'backupFiles'); 
+const backupRoot = path.join(__dirname, 'backups');
+const extractDir = path.join(__dirname, 'backupFiles');
 const mongoUri = process.env.MONGO_URI;
 const dbName = 'inventory';
 
@@ -16,11 +17,11 @@ async function findLatestZip(folderPath) {
   const files = fs.readdirSync(folderPath).filter(f => f.endsWith('.zip'));
   if (!files.length) throw new Error('No .zip files found in backup folder.');
 
-  const sorted = files.sort((a, b) => {
-    return fs.statSync(path.join(folderPath, b)).mtime - fs.statSync(path.join(folderPath, a)).mtime;
-  });
+  const sorted = files.sort((a, b) =>
+    fs.statSync(path.join(folderPath, b)).mtime - fs.statSync(path.join(folderPath, a)).mtime
+  );
 
-  return path.join(folderPath, sorted[0]); // Return full path of the latest zip
+  return path.join(folderPath, sorted[0]);
 }
 
 async function unzipBackup(zipFile, extractTo) {
@@ -60,24 +61,17 @@ async function unzipBackup(zipFile, extractTo) {
       if (!content || content === '[]') {
         console.log(`Creating empty collection: ${collection}`);
         await db.createCollection(collection);
-        console.log(`Created: ${collection}`);
-      } else {
-        const command = `mongoimport --uri="${mongoUri}" --db=${dbName} --collection=${collection} --file="${filePath}" --jsonArray --drop`;
+        continue;
+      }
 
-        console.log(`Importing collection: ${collection}...`);
-        await new Promise((resolve, reject) => {
-          exec(command, (error, stdout, stderr) => {
-            if (error) {
-              console.error(`Failed to import ${collection}:`, error.message);
-              return reject(error);
-            }
-            if (stderr) {
-              console.warn(`stderr for ${collection}:`, stderr);
-            }
-            console.log(`Imported: ${collection}`);
-            resolve();
-          });
-        });
+      console.log(`Restoring collection: ${collection}...`);
+
+      const parsed = EJSON.parse(content); // ✅ Properly parse EJSON to preserve ObjectId, Dates, etc.
+
+      await db.collection(collection).deleteMany({}); // optional: reset collection
+      if (parsed.length) {
+        await db.collection(collection).insertMany(parsed);
+        console.log(`Inserted ${parsed.length} documents into ${collection}`);
       }
     }
   } catch (err) {
