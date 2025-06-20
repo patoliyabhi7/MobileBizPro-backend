@@ -74,7 +74,7 @@ async function backupMongoToJSON() {
   console.log('Temporary files cleaned up');
 }
 
-cron.schedule('* * * * *', () => {
+cron.schedule('0 * * * *', () => {
   console.log(`Starting JSON MongoDB backup...`);
   backupMongoToJSON().catch((err) => {
     console.error('Backup failed:', err);
