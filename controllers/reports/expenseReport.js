@@ -25,14 +25,15 @@ exports.getExpenseReport = async (req, res) => {
 
     // Category filter
     if (categoryId && categoryId !== 'All') {
-      filters.expenseCategory = new mongoose.Types.ObjectId(categoryId);
+      filters.category = new mongoose.Types.ObjectId(categoryId);
     }
 
     // Fetch expenses with the applied filters
     const expenses = await Expense.find(filters)
       .populate('businessLocation', 'name')
-      .populate('expenseCategory', 'name')
-      .populate('paidFrom', 'name accountNumber')
+      .populate('category', 'name')
+      .populate('expenseFor', 'name')
+      .populate('expenseForContact', 'name')
       .sort({ transactionDate: -1 });
 
     // Group expenses by category and calculate totals
@@ -40,9 +41,9 @@ exports.getExpenseReport = async (req, res) => {
     let totalExpenseAmount = 0;
 
     for (const expense of expenses) {
-      const categoryId = expense.expenseCategory?._id?.toString() || 'uncategorized';
-      const categoryName = expense.expenseCategory?.name || 'Uncategorized';
-      const amount = expense.amount || 0;
+      const categoryId = expense.category?._id?.toString() || 'uncategorized';
+      const categoryName = expense.category?.name || 'Uncategorized';
+      const amount = expense.totalAmount || 0;
 
       if (!expensesByCategory[categoryId]) {
         expensesByCategory[categoryId] = {
@@ -53,16 +54,34 @@ exports.getExpenseReport = async (req, res) => {
       }
 
       expensesByCategory[categoryId].total += amount;
+      
+      // Determine who the expense is for
+      let expenseForName = '';
+      if (expense.expenseFor) {
+        expenseForName = expense.expenseFor.name || '';
+      } else if (expense.expenseForContact) {
+        expenseForName = expense.expenseForContact.name || '';
+      }
+      
+      // Get payment method from the first payment if available
+      let paymentMethod = '';
+      if (expense.payments && expense.payments.length > 0) {
+        paymentMethod = expense.payments[0].method || '';
+      }
+
       expensesByCategory[categoryId].expenses.push({
         id: expense._id,
         referenceNo: expense.referenceNo,
         date: expense.transactionDate,
         amount: amount,
+        tax: expense.tax || 0,
         location: expense.businessLocation?.name || 'Unknown location',
-        paymentStatus: expense.paymentStatus || 'paid',
-        paymentMethod: expense.paymentMethod || 'cash',
-        expenseFor: expense.expenseFor || '',
-        notes: expense.notes || ''
+        paymentStatus: expense.paymentStatus,
+        paymentMethod: paymentMethod,
+        expenseFor: expenseForName,
+        isRecurring: expense.isRecurring || false,
+        isRefund: expense.isRefund || false,
+        notes: expense.additionalNotes || ''
       });
 
       totalExpenseAmount += amount;

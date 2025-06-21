@@ -114,9 +114,51 @@ exports.addSaleReturn = async (req, res) => {
         });
       }
       
+      // Prioritize using originalUnitCost directly from the sale record
+      // We'll only perform lookups if the original cost isn't already stored
+      let originalUnitCost = null;
+      
+      if (saleProduct.originalUnitCost) {
+        // Use the original cost directly from the sale record if available
+        originalUnitCost = saleProduct.originalUnitCost;
+      } else if (saleProduct.purchaseRef) {
+        // If we have a purchaseRef but no originalUnitCost, look up the purchase cost
+        try {
+          const purchase = await Purchase.findById(saleProduct.purchaseRef);
+          if (purchase) {
+            const purchaseProduct = purchase.products.find(p => 
+              p.product.toString() === saleProdIdStr &&
+              (!saleProduct.imeiNo || p.imeiNo === saleProduct.imeiNo)
+            );
+            if (purchaseProduct) {
+              originalUnitCost = purchaseProduct.unitCost;
+            }
+          }
+        } catch (err) {
+          console.error(`Failed to fetch purchase ref for product ${saleProdIdStr}:`, err);
+        }
+      }
+      
+      // Last resort: check the stock record if we still don't have a cost
+      if (originalUnitCost === null && saleProduct.stockId) {
+        try {
+          const stock = await Stock.findById(saleProduct.stockId);
+          if (stock) {
+            originalUnitCost = stock.unitCost;
+          }
+        } catch (err) {
+          console.error(`Failed to fetch stock for product ${saleProdIdStr}:`, err);
+        }
+      }
+      
+      // Final fallback to the input cost if everything else fails
+      const finalUnitCost = originalUnitCost !== null ? originalUnitCost : inputProduct.unitCost;
+      
       saleProductsToValidate.push({
         ...saleProduct.toObject(),
-        unitCost: inputProduct.unitCost,
+        unitCost: inputProduct.unitCost, // Use input cost as the return amount
+        originalUnitCost: finalUnitCost, // Original purchase cost
+        purchaseRef: saleProduct.purchaseRef, // Keep track of the original purchase reference
         quantity: inputProduct.quantity
       });
       
@@ -180,13 +222,15 @@ exports.addSaleReturn = async (req, res) => {
       returnedProducts: matchedSaleProducts.map(p => ({
         product: p.product,
         stockId: p.stockId, // Original stock ID for reference
-        unitCost: p.unitCost,
+        purchaseRef: p.purchaseRef, // Original purchase reference
+        unitCost: p.unitCost, // Return amount sent from frontend
+        originalUnitCost: p.originalUnitCost, // Original purchase cost
         color: p.color,
         storage: p.storage,
         imeiNo: p.imeiNo,
         serialNo: p.serialNo,
         quantity: p.quantity,
-        lineTotal: p.unitCost * p.quantity,
+        lineTotal: p.unitCost * p.quantity, // Calculate lineTotal using frontend return amount
         gstApplicable: p.gstApplicable || false,
         gstPercentage: p.gstPercentage || 18,
         gstAmount: p.gstAmount || 0,
@@ -206,7 +250,7 @@ exports.addSaleReturn = async (req, res) => {
       imeiNo: p.imeiNo,
       color: p.color,
       storage: p.storage,
-      unitCost: p.unitCost,
+      unitCost: p.originalUnitCost, // Use original purchase price for stock creation
       quantity: p.quantity,
       gstApplicable: p.gstApplicable || false,
       gstPercentage: p.gstPercentage || 18
@@ -228,15 +272,16 @@ exports.addSaleReturn = async (req, res) => {
         storage: p.storage,
         imeiNo: p.imeiNo,
         serialNo: p.serialNo,
-        unitCost: p.unitCost,
-        lineTotal: p.unitCost * p.quantity,
+        unitCost: matchedSaleProducts[index].unitCost, // Frontend entered value
+        originalUnitCost: matchedSaleProducts[index].originalUnitCost, // Original purchase cost
+        lineTotal: matchedSaleProducts[index].unitCost * p.quantity, // Calculate line total using frontend value
         quantity: p.quantity,
         isReturn: true,
         returnDate,
         gstApplicable: p.gstApplicable || false,
         gstPercentage: p.gstPercentage || 18,
         gstAmount: matchedSaleProducts[index]?.gstAmount || 0,
-        lineTotalWithGst: matchedSaleProducts[index]?.lineTotalWithGst || (p.unitCost * p.quantity),
+        lineTotalWithGst: matchedSaleProducts[index]?.lineTotalWithGst || (matchedSaleProducts[index].unitCost * p.quantity),
       })),
       total: totalReturnAmount,
       paymentDue: totalReturnAmount,

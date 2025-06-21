@@ -49,7 +49,6 @@ exports.getBalanceSheet = async (req, res) => {
     let customerDue = sales.reduce((acc, s) => acc + Number(s.paymentDue || 0), 0);
     let supplierDue = purchases.reduce((acc, p) => acc + Number(p.paymentDue || 0), 0);
 
-    customerDue -= saleReturns.reduce((sum, r) => sum + Number(r.paymentDue || 0), 0);
     supplierDue -= purchaseReturns.reduce((sum, r) => sum + Number(r.paymentDue || 0), 0);
 
     const totalExpense = expenses.reduce((sum, e) => sum + Number(e.totalAmount || 0), 0);

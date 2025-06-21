@@ -4,6 +4,7 @@ const { updateAccountBalances } = require('../../utils/updateAccountBalance');
 const consumeStock = require('../../utils/consumeStock');
 const Stock = require('../../models/stockModel');
 const path = require('path');
+const Purchase = require('../../models/purchaseModel');
 
 exports.addSale = async (req, res) => {
   try {
@@ -77,6 +78,19 @@ exports.addSale = async (req, res) => {
         });
       }
 
+      // Get the original purchase reference by finding the purchase that contains this stockId
+      let purchaseRef = null;
+      try {
+        const purchase = await Purchase.findOne({
+          'products.stockId': stock._id
+        });
+        if (purchase) {
+          purchaseRef = purchase._id;
+        }
+      } catch (err) {
+        console.error(`Failed to find purchase reference for stock ${stock._id}:`, err);
+      }
+
       if (stock.imeiNo) {
         // Mobile: quantity must be 1 and status must be available
         if (requestedQuantity !== 1) {
@@ -102,6 +116,8 @@ exports.addSale = async (req, res) => {
       validatedProducts.push({
         ...p,
         quantity: requestedQuantity,
+        originalUnitCost: stock.unitCost, // Store the original purchase cost
+        purchaseRef: purchaseRef, // Store the purchase reference
       });
     }
 

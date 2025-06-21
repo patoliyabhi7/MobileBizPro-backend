@@ -18,6 +18,11 @@ exports.addPurchase = async (req, res) => {
         return res.status(400).json({ error: 'Missing product reference in one of the products.' });
       }
 
+      // Set originalUnitCost equal to unitCost
+      if (item.unitCost) {
+        item.originalUnitCost = item.unitCost;
+      }
+
       if (item.imeiNo) {
         if (item.quantity !== 1) {
           return res.status(400).json({ error: `IMEI-based item must have quantity = 1, got ${item.quantity}` });

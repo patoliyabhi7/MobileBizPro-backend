@@ -91,6 +91,11 @@ exports.updatePurchase = async (req, res) => {
           return res.status(400).json({ error: 'Missing product reference in one of the stock items' });
         }
 
+        // Ensure originalUnitCost is set for new products
+        if (!item.originalUnitCost && item.unitCost) {
+          item.originalUnitCost = item.unitCost;
+        }
+
         // For IMEI items (mobiles), quantity must be 1
         if (item.imeiNo && item.quantity !== 1) {
           return res.status(400).json({
@@ -258,6 +263,7 @@ exports.updatePurchase = async (req, res) => {
             gstApplicable: updatedProduct.gstApplicable,
             gstPercentage: updatedProduct.gstPercentage,
             unitCost: updatedProduct.unitCost,
+            originalUnitCost: updatedProduct.unitCost,
             serialNo: updatedProduct.serialNo,
             storage: updatedProduct.storage
           };

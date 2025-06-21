@@ -9,6 +9,7 @@ const purchaseProductSchema = new mongoose.Schema({
   quantity: { type: Number, required: true },
   unitCost: { type: Number, required: true },
   lineTotal: { type: Number, required: true },
+  originalUnitCost: { type: Number },
   note: String,
   stockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Stock' },
   isReturn: { type: Boolean, default: false },
