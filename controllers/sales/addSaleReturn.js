@@ -272,15 +272,16 @@ exports.addSaleReturn = async (req, res) => {
         storage: p.storage,
         imeiNo: p.imeiNo,
         serialNo: p.serialNo,
-        unitCost: matchedSaleProducts[index].originalUnitCost, // Use original purchase cost
-        lineTotal: matchedSaleProducts[index].originalUnitCost * p.quantity,
+        unitCost: matchedSaleProducts[index].unitCost, // Frontend entered value
+        originalUnitCost: matchedSaleProducts[index].originalUnitCost, // Original purchase cost
+        lineTotal: matchedSaleProducts[index].unitCost * p.quantity, // Calculate line total using frontend value
         quantity: p.quantity,
         isReturn: true,
         returnDate,
         gstApplicable: p.gstApplicable || false,
         gstPercentage: p.gstPercentage || 18,
         gstAmount: matchedSaleProducts[index]?.gstAmount || 0,
-        lineTotalWithGst: matchedSaleProducts[index]?.lineTotalWithGst || (matchedSaleProducts[index].originalUnitCost * p.quantity),
+        lineTotalWithGst: matchedSaleProducts[index]?.lineTotalWithGst || (matchedSaleProducts[index].unitCost * p.quantity),
       })),
       total: totalReturnAmount,
       paymentDue: totalReturnAmount,
