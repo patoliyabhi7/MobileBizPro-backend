@@ -25,13 +25,13 @@ exports.getExpenseReport = async (req, res) => {
 
     // Category filter
     if (categoryId && categoryId !== 'All') {
-      filters.expenseCategory = new mongoose.Types.ObjectId(categoryId);
+      filters.category = new mongoose.Types.ObjectId(categoryId);
     }
 
     // Fetch expenses with the applied filters
     const expenses = await Expense.find(filters)
       .populate('businessLocation', 'name')
-      .populate('expenseCategory', 'name')
+      .populate('category', 'name')
       .populate('paidFrom', 'name accountNumber')
       .sort({ transactionDate: -1 });
 
@@ -40,8 +40,8 @@ exports.getExpenseReport = async (req, res) => {
     let totalExpenseAmount = 0;
 
     for (const expense of expenses) {
-      const categoryId = expense.expenseCategory?._id?.toString() || 'uncategorized';
-      const categoryName = expense.expenseCategory?.name || 'Uncategorized';
+      const categoryId = expense.category?._id?.toString() || 'uncategorized';
+      const categoryName = expense.category?.name || 'Uncategorized';
       const amount = expense.amount || 0;
 
       if (!expensesByCategory[categoryId]) {
