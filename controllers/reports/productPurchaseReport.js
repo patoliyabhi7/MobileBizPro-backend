@@ -28,6 +28,7 @@ exports.getProductPurchaseReport = async (req, res) => {
     // Build filters
     let filters = {
       isDeleted: { $ne: true },
+      createdFromReturn: { $ne: true }, // Exclude purchases created from returns
       ...dateFilter
     };
 
@@ -62,6 +63,15 @@ exports.getProductPurchaseReport = async (req, res) => {
         // Skip if product is not populated or is deleted
         if (!productItem.product || productItem.product.isDeleted) continue;
         
+        // Skip products with isReturn true
+        if (productItem.isReturn) continue;
+        
+        // Skip products where all items have been returned
+        if (productItem.noOfReturnProducts && productItem.noOfReturnProducts >= productItem.quantity) continue;
+        
+        // Calculate the remaining quantity after returns
+        const remainingQuantity = productItem.quantity - (productItem.noOfReturnProducts || 0);
+        
         // Apply product ID filter if provided
         if (productId && productId !== 'All') {
           if (productItem.product._id.toString() !== productId) {
@@ -81,10 +91,10 @@ exports.getProductPurchaseReport = async (req, res) => {
           supplier: purchase.supplier ? purchase.supplier.businessName + ' ' + `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() : 'Unknown Supplier',
           referenceNo: purchase.referenceNo,
           date: purchase.purchaseDate,
-          quantity: productItem.quantity,
+          quantity: remainingQuantity,
           totalUnitAdjusted: productItem.isReturn ? productItem.quantity : 0,
           unitPurchasePrice: productItem.unitCost,
-          subtotal: productItem.lineTotal
+          subtotal: productItem.lineTotal * (remainingQuantity / productItem.quantity)
         };
         
         productPurchases.push(productPurchase);

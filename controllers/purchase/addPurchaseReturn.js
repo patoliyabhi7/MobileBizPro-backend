@@ -131,9 +131,11 @@ exports.addPurchaseReturn = async (req, res) => {
         matchedProduct.isReturn = true;
         matchedProduct.returnDate = new Date();
         matchedProduct.returnedQty = matchedProduct.quantity; // Full quantity
+        matchedProduct.noOfReturnProducts = matchedProduct.quantity; // Track number of returned products
       } else {
         // For accessories, track partial returns
         matchedProduct.returnedQty = (matchedProduct.returnedQty || 0) + returnQuantity;
+        matchedProduct.noOfReturnProducts = (matchedProduct.noOfReturnProducts || 0) + returnQuantity; // Update return count
         
         // Only mark as fully returned if all items are returned
         if (matchedProduct.returnedQty >= matchedProduct.quantity) {
