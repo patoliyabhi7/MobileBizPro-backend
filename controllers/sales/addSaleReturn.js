@@ -284,7 +284,7 @@ exports.addSaleReturn = async (req, res) => {
       })),
       total: totalReturnAmount,
       paymentDue: totalReturnAmount,
-      status: 'return',
+      status: 'received',
       paymentStatus: 'due',
       addedBy: req.user._id,
       createdFromReturn: true,

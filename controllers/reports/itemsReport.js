@@ -4,12 +4,13 @@ const Product = require('../../models/productModel');
 const BusinessLocation = require('../../models/businessLocationModel');
 const Contact = require('../../models/contactModel');
 const Category = require('../../models/categoryModel');
+const Stock = require('../../models/stockModel');
 const mongoose = require('mongoose');
 
 exports.getItemsReport = async (req, res) => {
   try {
-    const { 
-      supplierId, 
+    const {
+      supplierId,
       purchaseStartDate,
       purchaseEndDate,
       customerId,
@@ -21,9 +22,12 @@ exports.getItemsReport = async (req, res) => {
     } = req.query;
 
     // Build purchase filters
-    let purchaseFilters = { 
+    let purchaseFilters = {
       isDeleted: { $ne: true },
-      status: 'received' // Only include received purchases
+      $or: [
+        { status: 'received', createdFromReturn: { $ne: true } }, // Regular purchases
+        { createdFromReturn: true }                               // Sale returns
+      ]
     };
 
     // Date filter for purchases
@@ -46,126 +50,144 @@ exports.getItemsReport = async (req, res) => {
     }
 
     // Build category filter (will be applied after fetching data)
-    const categoryFilter = categoryId && categoryId !== 'All' 
-      ? new mongoose.Types.ObjectId(categoryId) 
+    let categoryFilter = categoryId && categoryId !== 'All'
+      ? new mongoose.Types.ObjectId(categoryId)
       : null;
 
-    // Fetch purchases with all their details
-    const purchases = await Purchase.find(purchaseFilters)
+    // Split the filters for regular purchases and sale returns
+    let regularPurchaseFilters = {
+      isDeleted: { $ne: true },
+      status: 'received',
+      createdFromReturn: { $ne: true } // Only regular purchases
+    };
+
+    let saleReturnFilters = {
+      isDeleted: { $ne: true },
+      createdFromReturn: true // Only sale returns
+    };
+
+    // Apply common filters to both queries
+    if (purchaseStartDate && purchaseEndDate) {
+      const start = new Date(purchaseStartDate);
+      const end = new Date(purchaseEndDate);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+      regularPurchaseFilters.purchaseDate = { $gte: start, $lte: end };
+      saleReturnFilters.purchaseDate = { $gte: start, $lte: end };
+    }
+
+    if (supplierId && supplierId !== 'All') {
+      regularPurchaseFilters.supplier = new mongoose.Types.ObjectId(supplierId);
+      saleReturnFilters.supplier = new mongoose.Types.ObjectId(supplierId);
+    }
+
+    if (locationId && locationId !== 'All') {
+      regularPurchaseFilters.businessLocation = new mongoose.Types.ObjectId(locationId);
+      saleReturnFilters.businessLocation = new mongoose.Types.ObjectId(locationId);
+    }
+
+    // Build category filter (will be applied after fetching data)
+    categoryFilter = categoryId && categoryId !== 'All'
+      ? new mongoose.Types.ObjectId(categoryId)
+      : null;
+
+    // Fetch regular purchases first
+    const regularPurchases = await Purchase.find(regularPurchaseFilters)
       .populate({
         path: 'products.product',
-        populate: { 
+        populate: {
           path: 'category',
           select: 'name'
         }
       })
       .populate('supplier', 'businessName firstName lastName')
       .populate('businessLocation', 'name')
-      .sort({ purchaseDate: -1 }) // Sort by newest first
+      .sort({ purchaseDate: -1 })
       .lean();
 
-    // Build sale filters for checking sold items (if customer filter provided)
-    let saleFilters = { 
-      isDeleted: { $ne: true },
-      status: 'completed'
-    };
-
-    // Date filter for sales
-    if (saleStartDate && saleEndDate) {
-      const start = new Date(saleStartDate);
-      const end = new Date(saleEndDate);
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
-      saleFilters.saleDate = { $gte: start, $lte: end };
-    }
-
-    // Customer filter
-    if (customerId && customerId !== 'All') {
-      saleFilters.customer = new mongoose.Types.ObjectId(customerId);
-    }
-
-    // Fetch sales data if any sale filters are applied
+    // Fetch sales data - always fetch to ensure sold items are properly filtered
     let salesData = [];
-    if (customerId || (saleStartDate && saleEndDate)) {
-      const sales = await Sale.find(saleFilters)
-        .populate('products.product')
-        .lean();
-      
-      // Extract sold items with their IMEIs/serials
-      sales.forEach(sale => {
-        sale.products.forEach(product => {
-          if (product.imeiNo || product.serialNo) {
-            salesData.push({
-              productId: product.product._id.toString(),
-              imeiNo: product.imeiNo,
-              serialNo: product.serialNo,
-              saleDate: sale.saleDate
-            });
-          }
-        });
-      });
-    }
+    
+    // Modified to always fetch sales data regardless of filters
+    const sales = await Sale.find({ 
+      isDeleted: { $ne: true }, 
+      status: 'completed' 
+    })
+      .populate('products.product')
+      .lean();
 
-    // Process purchase data and filter out sold items
+    // Extract sold items with their IMEIs/serials and also by productId and quantity
+    const productQuantitySold = {}; // Track quantities sold by productId
+    
+    sales.forEach(sale => {
+      sale.products.forEach(product => {
+        const productId = product.product._id.toString();
+        
+        // Track by IMEI/Serial for precise tracking
+        if (product.imeiNo || product.serialNo) {
+          salesData.push({
+            productId,
+            imeiNo: product.imeiNo,
+            serialNo: product.serialNo,
+            saleDate: sale.saleDate
+          });
+        }
+        
+        // Also track by product ID and quantity for non-IMEI items
+        if (!productQuantitySold[productId]) {
+          productQuantitySold[productId] = 0;
+        }
+        productQuantitySold[productId] += product.quantity;
+      });
+    });
+
+    // Process regular purchase data and only include items with available stock
     let items = [];
     let totalQty = 0;
     let totalPurchasePrice = 0;
     let totalPurchaseAmount = 0;
 
-    for (const purchase of purchases) {
+    for (const purchase of regularPurchases) {
       for (const product of purchase.products) {
         // Skip if product is deleted or doesn't exist
         if (!product.product || product.product.isDeleted) continue;
-        
+
         // Apply category filter if provided
-        if (categoryFilter && 
-            (!product.product.category || product.product.category._id.toString() !== categoryFilter.toString())) {
+        if (categoryFilter &&
+          (!product.product.category || product.product.category._id.toString() !== categoryFilter.toString())) {
           continue;
         }
-        
+
         // If only items with IMEI are requested, skip those without
         if (onlyImei === 'true' && !product.imeiNo) {
           continue;
         }
-        
-        // Check if this item has been sold
-        let isSold = false;
-        if (salesData.length > 0) {
-          // If there's sales filtering, check if this specific item was sold
-          if (product.imeiNo || product.serialNo) {
-            isSold = salesData.some(sale => 
-              (product.imeiNo && sale.imeiNo === product.imeiNo) ||
-              (product.serialNo && sale.serialNo === product.serialNo)
-            );
-          }
+
+        // Get availableQty directly from Stock model
+        let availableQty = 0;
+        if (product.stockId) {
+          const stockDoc = await Stock.findById(product.stockId).lean();
+          availableQty = stockDoc ? stockDoc.quantity : 0;
         }
-        
-        // Skip if sold and we're filtering by sales
-        if ((customerId || (saleStartDate && saleEndDate)) && isSold) {
+
+        // Skip if no quantity available - this means it's sold out
+        if (availableQty <= 0) {
           continue;
         }
-        
-        // Format the description with IMEI, serial, color and storage
+
+        // Format the description
         const description = [
           product.imeiNo ? `IMEI NO: ${product.imeiNo}` : '',
           product.serialNo ? `SN NO: ${product.serialNo}` : '',
           product.color ? `Color: ${product.color}` : '',
           product.storage ? `Storage: ${product.storage}` : ''
         ].filter(Boolean).join('\n');
-        
-        // Calculate available quantity (original quantity - returns)
-        const availableQty = product.isReturn ? 0 : product.quantity;
-        
-        // Skip if no quantity available
-        if (availableQty <= 0) {
-          continue;
-        }
-        
+
         // Add to totals
         totalQty += availableQty;
-        totalPurchasePrice += product.unitCost * availableQty;
-        totalPurchaseAmount += product.lineTotal;
-        
+        totalPurchasePrice += product.unitCost;
+        totalPurchaseAmount += product.unitCost * availableQty;
+
         // Create the item record
         items.push({
           product: product.product.productName,
@@ -175,7 +197,81 @@ exports.getItemsReport = async (req, res) => {
           availableQty,
           supplier: purchase.supplier ? purchase.supplier.businessName || `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() : 'Unknown Supplier',
           purchasePrice: product.unitCost,
-          purchaseTotal: product.lineTotal
+          purchaseTotal: product.unitCost * availableQty
+        });
+      }
+    }
+
+    // Now fetch and add sale returns
+    const saleReturns = await Purchase.find(saleReturnFilters)
+      .populate({
+        path: 'products.product',
+        populate: {
+          path: 'category',
+          select: 'name'
+        }
+      })
+      .populate('supplier', 'businessName firstName lastName')
+      .populate('businessLocation', 'name')
+      .sort({ purchaseDate: -1 })
+      .lean();
+
+    // Process sale returns with the same simplified approach
+    for (const saleReturn of saleReturns) {
+      for (const product of saleReturn.products) {
+        // Skip if product is deleted or doesn't exist
+        if (!product.product || product.product.isDeleted) continue;
+
+        // Apply category filter if provided
+        if (categoryFilter &&
+          (!product.product.category || product.product.category._id.toString() !== categoryFilter.toString())) {
+          continue;
+        }
+
+        // If only items with IMEI are requested, skip those without
+        if (onlyImei === 'true' && !product.imeiNo) {
+          continue;
+        }
+
+        // Get availableQty directly from Stock model
+        let availableQty = 0;
+        if (product.stockId) {
+          const stockDoc = await Stock.findById(product.stockId).lean();
+          availableQty = stockDoc ? stockDoc.quantity : 0;
+        }
+
+        // Skip if no quantity available - this means it's sold out
+        if (availableQty <= 0) {
+          continue;
+        }
+
+        // Format the description
+        const description = [
+          product.imeiNo ? `IMEI NO: ${product.imeiNo}` : '',
+          product.serialNo ? `SN NO: ${product.serialNo}` : '',
+          product.color ? `Color: ${product.color}` : '',
+          product.storage ? `Storage: ${product.storage}` : ''
+        ].filter(Boolean).join('\n');
+
+        // Use originalUnitCost if available, otherwise fall back to unitCost
+        const purchasePrice = product.originalUnitCost || product.unitCost;
+
+        // Add to totals
+        totalQty += availableQty;
+        totalPurchasePrice += purchasePrice;
+        totalPurchaseAmount += purchasePrice * availableQty;
+
+        // Create the item record
+        items.push({
+          product: product.product.productName,
+          description,
+          purchaseDate: saleReturn.purchaseDate,
+          purchase: saleReturn.referenceNo,
+          availableQty,
+          supplier: saleReturn.supplier ? saleReturn.supplier.businessName || `${saleReturn.supplier.firstName || ''} ${saleReturn.supplier.lastName || ''}`.trim() : 'Unknown Supplier',
+          purchasePrice: purchasePrice,
+          purchaseTotal: purchasePrice * availableQty,
+          isReturn: true // Mark as return for UI distinction if needed
         });
       }
     }
