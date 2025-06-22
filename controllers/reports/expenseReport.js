@@ -33,7 +33,8 @@ exports.getExpenseReport = async (req, res) => {
       .populate('businessLocation', 'name')
       .populate('category', 'name')
       .populate('expenseFor', 'name')
-      .populate('expenseForContact', 'name')
+      .populate('expenseForContact', 'firstName lastName')
+      .populate('payments.method', 'name')
       .sort({ transactionDate: -1 });
 
     // Group expenses by category and calculate totals
@@ -60,13 +61,13 @@ exports.getExpenseReport = async (req, res) => {
       if (expense.expenseFor) {
         expenseForName = expense.expenseFor.name || '';
       } else if (expense.expenseForContact) {
-        expenseForName = expense.expenseForContact.name || '';
+        expenseForName = expense.expenseForContact.firstName + ' ' + expense.expenseForContact.lastName || '';
       }
       
       // Get payment method from the first payment if available
       let paymentMethod = '';
       if (expense.payments && expense.payments.length > 0) {
-        paymentMethod = expense.payments[0].method || '';
+        paymentMethod = expense.payments[0].method?.name || '';
       }
 
       expensesByCategory[categoryId].expenses.push({
