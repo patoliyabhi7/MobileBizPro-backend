@@ -38,10 +38,22 @@ exports.getSalesRepresentativeReport = async (req, res) => {
       saleDate: dateRange
     })
       .sort({ saleDate: -1 })
-      .populate('customer')
-      .populate('businessLocation')
+      .populate('customer', 'firstName lastName businessName')
+      .populate('businessLocation', 'name')
       .populate('addedBy', 'name _id')
-      .populate('products.product');
+      .populate({
+        path: 'products.product',
+        select: 'productName'
+      })
+      .populate({
+        path: 'payments.method',
+        select: 'name'
+      })
+      .populate({
+        path: 'payments.account',
+        select: 'name'
+      })
+      .lean();
 
     // Fetch sale returns data using returnDate field
     const saleReturns = await SaleReturn.find({
@@ -49,10 +61,30 @@ exports.getSalesRepresentativeReport = async (req, res) => {
       returnDate: dateRange
     })
       .sort({ returnDate: -1 })
-      .populate('originalSale')
-      .populate('customer')
-      .populate('businessLocation')
-      .populate('addedBy', 'name _id');
+      .populate({
+        path: 'originalSale',
+        select: 'invoiceNo customer',
+        populate: {
+          path: 'customer',
+          select: 'firstName lastName businessName'
+        }
+      })
+      .populate('businessLocation', 'name')
+      .populate('addedBy', 'name _id')
+      .populate({
+        path: 'returnedProducts.product',
+        select: 'productName'
+      })
+      .populate({
+        path: 'returnPayments.method',
+        select: 'name'
+      })
+      .populate({
+        path: 'returnPayments.account',
+        select: 'name'
+      })
+      .populate('newPurchase', 'referenceNo paymentDue paymentStatus total payments')
+      .lean();
 
     // Fetch expenses data using transactionDate field
     const expenses = await Expense.find({
@@ -60,29 +92,36 @@ exports.getSalesRepresentativeReport = async (req, res) => {
       transactionDate: dateRange
     })
       .sort({ transactionDate: -1 })
-      .populate('expenseCategory')
-      .populate('businessLocation')
+      .populate('category', 'name')
+      .populate('businessLocation', 'name')
       .populate('addedBy', 'name _id')
-      .populate('paidFrom');
+      .populate('expenseFor', 'name')
+      .populate('expenseForContact', 'firstName lastName businessName')
+      .populate({
+        path: 'payments.method',
+        select: 'name'
+      })
+      .populate({
+        path: 'payments.account',
+        select: 'name'
+      })
+      .lean();
 
     // Calculate summary stats
     const totalSaleAmount = sales.reduce((acc, sale) => acc + (sale.total || 0), 0);
     const totalSaleReturnAmount = saleReturns.reduce((acc, saleReturn) => acc + (saleReturn.totalReturnAmount || 0), 0);
     const totalSaleNet = totalSaleAmount - totalSaleReturnAmount;
-    const totalExpenseAmount = expenses.reduce((acc, expense) => acc + (expense.amount || 0), 0);
+    const totalExpenseAmount = expenses.reduce((acc, expense) => acc + (expense.totalAmount || 0), 0);
 
-    // Format sales data for response
-    const formattedSales = sales.map(sale => {
-      // Calculate payment status
-      let paymentStatus = 'Due';
+    // Format combined sales and returns data for response
+    const formattedTransactions = [];
+    
+    // Add sales entries
+    sales.forEach(sale => {
+      // Use the payment status directly from the database
+      const paymentStatus = sale.paymentStatus || 'Due';
       const totalPaid = sale.payments?.reduce((acc, payment) => acc + payment.amount, 0) || 0;
       const remaining = sale.total - totalPaid;
-
-      if (totalPaid >= sale.total) {
-        paymentStatus = 'Paid';
-      } else if (totalPaid > 0) {
-        paymentStatus = 'Partial';
-      }
 
       // Get product details (for showing in the invoice details)
       const productDetails = sale.products?.[0] ? {
@@ -90,18 +129,50 @@ exports.getSalesRepresentativeReport = async (req, res) => {
         productName: sale.products[0].product?.productName || 'Unknown Product'
       } : null;
 
-      return {
+      formattedTransactions.push({
         _id: sale._id,
         date: sale.saleDate,
+        type: 'sale',
         invoiceNo: sale.invoiceNo,
-        customerName: sale.customer ? `${sale.customer.firstName || ''} ${sale.customer.lastName || ''}`.trim() : 'Walk-in Customer',
+        referenceNo: sale.invoiceNo, // For consistent field naming
+        customerName: sale.customer ? `${sale.customer.firstName || ''} ${sale.customer.lastName || ''}`.trim() || sale.customer.businessName || 'Walk-in Customer' : 'Walk-in Customer',
         location: sale.businessLocation?.name || 'Unknown Location',
         paymentStatus,
         totalAmount: sale.total || 0,
         totalPaid,
         totalRemaining: remaining,
-        productDetails
-      };
+        productDetails,
+        section: 'sales' // Mark as part of sales section
+      });
+    });
+
+    // Add sale return entries
+    saleReturns.forEach(saleReturn => {
+      // Get product details from the first returned product
+      const productDetails = saleReturn.returnedProducts?.[0] ? {
+        imeiNo: saleReturn.returnedProducts[0].imeiNo,
+        productName: saleReturn.returnedProducts[0].product?.productName || 'Unknown Product'
+      } : null;
+
+      formattedTransactions.push({
+        _id: saleReturn._id,
+        date: saleReturn.returnDate,
+        type: 'return',
+        invoiceNo: saleReturn.originalSale?.invoiceNo || 'N/A',
+        referenceNo: saleReturn.referenceNo,
+        customerName: saleReturn.originalSale?.customer ? 
+          `${saleReturn.originalSale.customer.firstName || ''} ${saleReturn.originalSale.customer.lastName || ''}`.trim() || 
+          saleReturn.originalSale.customer.businessName || 'Walk-in Customer' : 
+          'Walk-in Customer',
+        location: saleReturn.businessLocation?.name || 'Unknown Location',
+        paymentStatus: saleReturn.newPurchase?.paymentStatus || 'Returned',
+        totalAmount: -1 * (saleReturn.newPurchase?.total || 0), // Keep negative to indicate return
+        totalPaid: saleReturn.newPurchase?.payments?.reduce((acc, payment) => acc + payment.amount, 0) || 0,
+        totalRemaining: saleReturn.newPurchase?.paymentDue || 0,
+        productDetails, // Added product details
+        isReturn: true,
+        section: 'sales' // Mark as part of sales section
+      });
     });
 
     // Format expenses data for response
@@ -109,34 +180,60 @@ exports.getSalesRepresentativeReport = async (req, res) => {
       // Determine payment status
       const paymentStatus = expense.paymentStatus || 'Paid';
 
+      // Safely handle expense contact information
+      let expenseForName = '';
+      if (expense.expenseFor && expense.expenseFor.name) {
+        expenseForName = expense.expenseFor.name;
+      } else if (expense.expenseForContact) {
+        expenseForName = 
+          `${expense.expenseForContact.firstName || ''} ${expense.expenseForContact.lastName || ''}`.trim() || 
+          expense.expenseForContact.businessName || '';
+      }
+
       return {
         _id: expense._id,
         date: expense.transactionDate,
+        type: 'expense',
         referenceNo: expense.referenceNo,
-        expenseCategory: expense.expenseCategory?.name || 'Uncategorized',
+        expenseCategory: expense.category?.name || 'Uncategorized',
         location: expense.businessLocation?.name || 'Unknown Location',
         paymentStatus,
-        totalAmount: expense.amount || 0,
-        expenseFor: expense.expenseFor || '',
-        expenseNote: expense.notes || ''
+        totalAmount: expense.totalAmount || 0,
+        expenseFor: expenseForName,
+        expenseNote: expense.additionalNotes || '',
+        section: 'expenses' // Mark as part of expenses section
       };
     });
 
-    // Count payment statuses
-    const paymentStatusCounts = {
-      paid: formattedSales.filter(sale => sale.paymentStatus === 'Paid').length,
-      partial: formattedSales.filter(sale => sale.paymentStatus === 'Partial').length,
-      due: formattedSales.filter(sale => sale.paymentStatus === 'Due').length,
+    // Add expenses to the main transactions array
+    formattedTransactions.push(...formattedExpenses);
+
+    // Group transactions by section
+    const salesTransactions = formattedTransactions.filter(t => t.section === 'sales');
+    const expenseTransactions = formattedTransactions.filter(t => t.section === 'expenses');
+
+    // Sort all entries in each section by date, newest first
+    salesTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+    expenseTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Count payment statuses for sales
+    const salePaymentStatusCounts = {
+      paid: salesTransactions.filter(sale => sale.type === 'sale' && sale.paymentStatus === 'Paid').length,
+      partial: salesTransactions.filter(sale => sale.type === 'sale' && sale.paymentStatus === 'Partial').length,
+      due: salesTransactions.filter(sale => sale.type === 'sale' && sale.paymentStatus === 'Due').length,
+      returned: salesTransactions.filter(sale => sale.type === 'return').length
     };
 
-    // Calculate total paid and due amounts
-    const totalPaidAmount = formattedSales.reduce((acc, sale) => acc + sale.totalPaid, 0);
-    const totalDueAmount = formattedSales.reduce((acc, sale) => acc + sale.totalRemaining, 0);
+    // Calculate total paid and due amounts for sales
+    const salesOnlyTransactions = salesTransactions.filter(t => t.type === 'sale');
+    const totalPaidAmount = salesOnlyTransactions.reduce((acc, sale) => acc + (sale.totalPaid || 0), 0);
+    const totalDueAmount = salesOnlyTransactions.reduce((acc, sale) => acc + (sale.totalRemaining || 0), 0);
 
     // Calculate expense payment status counts
     const expensePaymentStatusCounts = {
-      paid: formattedExpenses.filter(exp => exp.paymentStatus === 'Paid').length,
-      partial: formattedExpenses.filter(exp => exp.paymentStatus === 'Partial').length,
+      paid: expenseTransactions.filter(exp => exp.paymentStatus === 'Paid').length,
+      partial: expenseTransactions.filter(exp => exp.paymentStatus === 'Partial').length,
+      due: expenseTransactions.filter(exp => exp.paymentStatus === 'Due').length,
     };
 
     res.json({
@@ -147,22 +244,25 @@ exports.getSalesRepresentativeReport = async (req, res) => {
         totalExpenseAmount
       },
       sales: {
-        data: formattedSales,
+        data: salesTransactions,
         counts: {
-          total: formattedSales.length,
-          ...paymentStatusCounts
+          total: salesTransactions.length,
+          sales: salesOnlyTransactions.length,
+          returns: salesTransactions.filter(t => t.type === 'return').length,
+          ...salePaymentStatusCounts
         },
         totals: {
           amount: totalSaleAmount,
+          returnAmount: totalSaleReturnAmount,
+          netAmount: totalSaleNet,
           paid: totalPaidAmount,
-          due: totalDueAmount,
-          saleReturnDue: 0 // Add actual calculation if available
+          due: totalDueAmount
         }
       },
       expenses: {
-        data: formattedExpenses,
+        data: expenseTransactions,
         counts: {
-          total: formattedExpenses.length,
+          total: expenseTransactions.length,
           ...expensePaymentStatusCounts
         },
         total: totalExpenseAmount
