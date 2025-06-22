@@ -8,12 +8,12 @@ const PurchaseReturn = require('../../models/purchaseReturnModel'); // Add this 
 
 exports.getProductPurchaseReport = async (req, res) => {
   try {
-    const { 
-      startDate, 
-      endDate, 
-      productId, 
-      supplierId, 
-      locationId, 
+    const {
+      startDate,
+      endDate,
+      productId,
+      supplierId,
+      locationId,
       brandId
     } = req.query;
 
@@ -74,7 +74,10 @@ exports.getProductPurchaseReport = async (req, res) => {
       })
       .populate('businessLocation')
       .populate('originalPurchase')
-      .populate('supplier', 'businessName firstName lastName')
+      .populate({
+        path: 'originalPurchase',
+        populate: { path: 'supplier', select: 'businessName firstName lastName' }
+      })
       .lean();
 
     let productPurchases = [];
@@ -102,7 +105,7 @@ exports.getProductPurchaseReport = async (req, res) => {
           type: 'purchase',
           product: productItem.product.productName,
           sku: productItem.product.sku,
-          supplier: purchase.supplier ?  purchase.supplier.BusinessName + ' ' + `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() : 'Unknown Supplier',
+          supplier: purchase.supplier ? purchase.supplier.businessName + ' ' + `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() : 'Unknown Supplier',
           referenceNo: purchase.referenceNo,
           date: purchase.purchaseDate,
           quantity: productItem.quantity,
@@ -133,7 +136,7 @@ exports.getProductPurchaseReport = async (req, res) => {
           type: 'return',
           product: returnedItem.product.productName,
           sku: returnedItem.product.sku,
-          supplier: purchaseReturn.originalPurchase && purchaseReturn.originalPurchase.supplier ?  purchaseReturn.originalPurchase.supplier.BusinessName + ' ' + purchaseReturn.originalPurchase.supplier.firstName + ' ' + purchaseReturn.originalPurchase.supplier.lastName : 'Unknown Supplier',
+          supplier: purchaseReturn.originalPurchase && purchaseReturn.originalPurchase.supplier ? purchaseReturn.originalPurchase.supplier.businessName + ' ' + purchaseReturn.originalPurchase.supplier.firstName + ' ' + purchaseReturn.originalPurchase.supplier.lastName : 'Unknown Supplier',
           referenceNo: purchaseReturn.referenceNo,
           date: purchaseReturn.returnDate,
           quantity: -Math.abs(returnedItem.quantity || 0), // Negative for returns
