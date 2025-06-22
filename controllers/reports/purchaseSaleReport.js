@@ -2,6 +2,7 @@ const Purchase = require('../../models/purchaseModel');
 const Sale = require('../../models/saleModel');
 const PurchaseReturn = require('../../models/purchaseReturnModel');
 const SaleReturn = require('../../models/saleReturnModel');
+const mongoose = require('mongoose');
 
 exports.getPurchaseSaleReport = async (req, res) => {
   try {
@@ -11,7 +12,9 @@ exports.getPurchaseSaleReport = async (req, res) => {
       return res.status(400).json({ error: 'Start date and end date are required' });
     }
 
-    const locationFilter = locationId && locationId !== 'All locations' ? { businessLocation: locationId } : {};
+    const locationFilter = locationId && locationId !== 'All locations' 
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+      : {};
     
     // Define date ranges
     const start = new Date(startDate);
@@ -29,27 +32,30 @@ exports.getPurchaseSaleReport = async (req, res) => {
     // GET PURCHASE DATA
     // Get total purchase amount
     const getTotalPurchase = async () => {
-      const purchases = await Purchase.find(addFilters({}, 'purchaseDate'));
+      const purchases = await Purchase.find(addFilters({}, 'purchaseDate')).lean();
       return purchases.reduce((total, purchase) => {
-        const purchaseTotal = purchase.grandTotal || 0;
+        // Use total field instead of grandTotal which doesn't exist
+        const purchaseTotal = purchase.total || 0;
         return total + purchaseTotal;
       }, 0);
     };
 
     // Get total purchase including tax
     const getPurchaseIncludingTax = async () => {
-      const purchases = await Purchase.find(addFilters({}, 'purchaseDate'));
+      const purchases = await Purchase.find(addFilters({}, 'purchaseDate')).lean();
       return purchases.reduce((total, purchase) => {
-        // Including tax means the grand total (which already includes tax)
-        return total + (purchase.grandTotal || 0);
+        // Use totalAmountWithGst if available, otherwise fall back to total
+        const totalWithTax = purchase.totalAmountWithGst || purchase.total || 0;
+        return total + totalWithTax;
       }, 0);
     };
 
     // Get total purchase return including tax
     const getPurchaseReturnIncludingTax = async () => {
-      const returns = await PurchaseReturn.find(addFilters({}, 'returnDate'));
+      const returns = await PurchaseReturn.find(addFilters({}, 'returnDate')).lean();
       return returns.reduce((total, ret) => {
-        return total + (ret.totalAmount || 0);
+        // Use totalReturnAmountWithGst if available, otherwise use totalReturnAmount
+        return total + (ret.totalReturnAmountWithGst || ret.totalReturnAmount || 0);
       }, 0);
     };
 
@@ -57,8 +63,8 @@ exports.getPurchaseSaleReport = async (req, res) => {
     const getPurchaseDue = async () => {
       const purchases = await Purchase.find({
         ...addFilters({}, 'purchaseDate'),
-        paymentStatus: { $ne: 'paid' }
-      });
+        paymentStatus: { $in: ['due', 'partial'] }
+      }).lean();
       
       return purchases.reduce((total, purchase) => {
         return total + (purchase.paymentDue || 0);
@@ -68,27 +74,30 @@ exports.getPurchaseSaleReport = async (req, res) => {
     // GET SALE DATA
     // Get total sale amount
     const getTotalSale = async () => {
-      const sales = await Sale.find(addFilters({}, 'saleDate'));
+      const sales = await Sale.find(addFilters({}, 'saleDate')).lean();
       return sales.reduce((total, sale) => {
-        const saleTotal = sale.grandTotal || 0;
+        // Use total field instead of grandTotal which doesn't exist
+        const saleTotal = sale.total || 0;
         return total + saleTotal;
       }, 0);
     };
 
     // Get total sale including tax
     const getSaleIncludingTax = async () => {
-      const sales = await Sale.find(addFilters({}, 'saleDate'));
+      const sales = await Sale.find(addFilters({}, 'saleDate')).lean();
       return sales.reduce((total, sale) => {
-        // Including tax means the grand total (which already includes tax)
-        return total + (sale.grandTotal || 0);
+        // Use totalAmountWithGst if available, otherwise fall back to total
+        const totalWithTax = sale.totalAmountWithGst || sale.total || 0;
+        return total + totalWithTax;
       }, 0);
     };
 
     // Get total sale return including tax
     const getSaleReturnIncludingTax = async () => {
-      const returns = await SaleReturn.find(addFilters({}, 'returnDate'));
+      const returns = await SaleReturn.find(addFilters({}, 'returnDate')).lean();
       return returns.reduce((total, ret) => {
-        return total + (ret.totalAmount || 0);
+        // Use totalReturnAmountWithGst if available, otherwise use totalReturnAmount
+        return total + (ret.totalReturnAmountWithGst || ret.totalReturnAmount || 0);
       }, 0);
     };
 
@@ -96,8 +105,8 @@ exports.getPurchaseSaleReport = async (req, res) => {
     const getSaleDue = async () => {
       const sales = await Sale.find({
         ...addFilters({}, 'saleDate'),
-        paymentStatus: { $ne: 'paid' }
-      });
+        paymentStatus: { $in: ['due', 'partial'] }
+      }).lean();
       
       return sales.reduce((total, sale) => {
         return total + (sale.paymentDue || 0);
@@ -133,6 +142,17 @@ exports.getPurchaseSaleReport = async (req, res) => {
 
     // Calculate due amount difference (Sale due - Purchase due)
     const dueAmountDiff = saleDue - purchaseDue;
+
+    console.log('Report values:', {
+      totalPurchase,
+      purchaseIncludingTax,
+      purchaseReturnIncludingTax,
+      purchaseDue,
+      totalSale,
+      saleIncludingTax,
+      saleReturnIncludingTax,
+      saleDue
+    });
 
     const report = {
       startDate,
