@@ -276,7 +276,7 @@ exports.addSaleReturn = async (req, res) => {
         originalUnitCost: matchedSaleProducts[index].originalUnitCost, // Original purchase cost
         lineTotal: matchedSaleProducts[index].unitCost * p.quantity, // Calculate line total using frontend value
         quantity: p.quantity,
-        isReturn: true,
+        isReturn: false,
         returnDate,
         gstApplicable: p.gstApplicable || false,
         gstPercentage: p.gstPercentage || 18,
