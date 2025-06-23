@@ -18,7 +18,7 @@ const { getStockReport } = require('../controllers/reports/stockReport');
 const { getStockHistoryReport } = require('../controllers/reports/stockHistoryReport');
 const { getViewContactReport } = require('../controllers/reports/viewContactReport');
 
-router.get('/profit-loss', getProfitLossReport);
+router.get('/profit-loss', protect, getProfitLossReport);
 router.get('/purchase-sale', protect, getPurchaseSaleReport);
 router.get('/customer-supplier', protect, getCustomerSupplierReport);
 router.get('/sales-representative', protect, getSalesRepresentativeReport);

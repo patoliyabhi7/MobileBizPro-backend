@@ -431,10 +431,13 @@ async function getProfitByProducts(req, res) {
       { $sort: { grossProfit: -1 } }
     ]);
 
-    return res.status(200).json({
-      success: true,
-      data: productProfits
-    });
+    // Calculate total profit
+    const total = productProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+    return {
+      data: productProfits,
+      total
+    };
   } catch (err) {
     console.error('Error generating profit by products report:', err);
     return res.status(500).json({ error: err.message || 'Error generating profit report' });
@@ -581,10 +584,13 @@ async function getProfitByBrands(req, res) {
       { $sort: { grossProfit: -1 } }
     ]);
 
-    return res.status(200).json({
-      success: true,
-      data: brandProfits
-    });
+    // Calculate total profit
+    const total = brandProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+    return {
+      data: brandProfits,
+      total
+    };
   } catch (err) {
     console.error('Error generating profit by brands report:', err);
     return res.status(500).json({ error: err.message || 'Error generating profit report' });
@@ -708,10 +714,13 @@ async function getProfitByInvoice(req, res) {
       { $sort: { saleDate: -1 } }
     ]);
 
-    return res.status(200).json({
-      success: true,
-      data: invoiceProfits
-    });
+    // Calculate total profit
+    const total = invoiceProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+    return {
+      data: invoiceProfits,
+      total
+    };
   } catch (err) {
     console.error('Error generating profit by invoice report:', err);
     return res.status(500).json({ error: err.message || 'Error generating profit report' });
@@ -784,10 +793,13 @@ async function getProfitByDate(req, res) {
       { $sort: { date: -1 } }
     ]);
 
-    return res.status(200).json({
-      success: true,
-      data: dateProfits
-    });
+    // Calculate total profit
+    const total = dateProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+    return {
+      data: dateProfits,
+      total
+    };
   } catch (err) {
     console.error('Error generating profit by date report:', err);
     return res.status(500).json({ error: err.message || 'Error generating profit report' });
@@ -887,10 +899,13 @@ async function getProfitByCustomer(req, res) {
       { $sort: { grossProfit: -1 } }
     ]);
 
-    return res.status(200).json({
-      success: true,
-      data: customerProfits
-    });
+    // Calculate total profit
+    const total = customerProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+    return {
+      data: customerProfits,
+      total
+    };
   } catch (err) {
     console.error('Error generating profit by customer report:', err);
     return res.status(500).json({ error: err.message || 'Error generating profit report' });
@@ -1035,7 +1050,13 @@ async function getProductsProfitData(req) {
     { $sort: { grossProfit: -1 } }
   ]);
 
-  return productProfits;
+  // Calculate total profit
+  const total = productProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+  return {
+    data: productProfits,
+    total
+  };
 }
 
 // Categories profit data
@@ -1173,7 +1194,13 @@ async function getBrandsProfitData(req) {
     { $sort: { grossProfit: -1 } }
   ]);
 
-  return brandProfits;
+  // Calculate total profit
+  const total = brandProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+  return {
+    data: brandProfits,
+    total
+  };
 }
 
 // Locations profit data
@@ -1288,7 +1315,13 @@ async function getInvoiceProfitData(req) {
     { $sort: { saleDate: -1 } }
   ]);
 
-  return invoiceProfits;
+  // Calculate total profit
+  const total = invoiceProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+  return {
+    data: invoiceProfits,
+    total
+  };
 }
 
 // Date profit data
@@ -1357,7 +1390,13 @@ async function getDateProfitData(req) {
     { $sort: { date: -1 } }
   ]);
 
-  return dateProfits;
+  // Calculate total profit
+  const total = dateProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+  return {
+    data: dateProfits,
+    total
+  };
 }
 
 // Customer profit data
@@ -1453,7 +1492,13 @@ async function getCustomerProfitData(req) {
     { $sort: { grossProfit: -1 } }
   ]);
 
-  return customerProfits;
+  // Calculate total profit
+  const total = customerProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+  return {
+    data: customerProfits,
+    total
+  };
 }
 
 // Day profit data
