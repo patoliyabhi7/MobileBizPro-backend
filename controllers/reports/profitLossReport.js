@@ -19,31 +19,47 @@ exports.getProfitLossReport = async (req, res) => {
       return res.status(400).json({ error: 'Start date and end date are required' });
     }
 
-    // If reportType is specified, generate that specific profit report
+    // Initialize specialized report data
+    let specializedReportData = null;
+
+    // If reportType is specified, get that specific profit report data
     if (reportType) {
-      switch (reportType) {
-        case 'products':
-          return await getProfitByProducts(req, res);
-        case 'categories':
-          return await getProfitByCategories(req, res);
-        case 'brands':
-          return await getProfitByBrands(req, res);
-        case 'locations':
-          return await getProfitByLocations(req, res);
-        case 'invoice':
-          return await getProfitByInvoice(req, res);
-        case 'date':
-          return await getProfitByDate(req, res);
-        case 'customer':
-          return await getProfitByCustomer(req, res);
-        case 'day':
-          return await getProfitByDay(req, res);
-        default:
-          break;
+      try {
+        switch (reportType) {
+          case 'products':
+            specializedReportData = await getProductsProfitData(req);
+            break;
+          case 'categories':
+            specializedReportData = await getCategoriesProfitData(req);
+            break;
+          case 'brands':
+            specializedReportData = await getBrandsProfitData(req);
+            break;
+          case 'locations':
+            specializedReportData = await getLocationsProfitData(req);
+            break;
+          case 'invoice':
+            specializedReportData = await getInvoiceProfitData(req);
+            break;
+          case 'date':
+            specializedReportData = await getDateProfitData(req);
+            break;
+          case 'customer':
+            specializedReportData = await getCustomerProfitData(req);
+            break;
+          case 'day':
+            specializedReportData = await getDayProfitData(req);
+            break;
+          default:
+            break;
+        }
+      } catch (error) {
+        console.error(`Error generating specialized report for ${reportType}:`, error);
+        // Continue with standard report even if specialized report fails
       }
     }
 
-    // Continue with the standard profit/loss report if no specific type is requested
+    // Continue with the standard profit/loss report
     const locationFilter = locationId && locationId !== 'All locations' ? { businessLocation: locationId } : {};
     
     // Define date ranges
@@ -347,6 +363,14 @@ exports.getProfitLossReport = async (req, res) => {
       grossProfit: parseFloat(grossProfit).toFixed(2),
       netProfit: parseFloat(netProfit).toFixed(2)
     };
+
+    // Add specialized report data if available
+    if (specializedReportData) {
+      report.specializedReport = {
+        type: reportType,
+        data: specializedReportData
+      };
+    }
 
     res.status(200).json(report);
   } catch (err) {
@@ -956,4 +980,558 @@ async function getProfitByDay(req, res) {
     console.error('Error generating profit by day report:', err);
     return res.status(500).json({ error: err.message || 'Error generating profit report' });
   }
+}
+
+// Helper functions for specialized reports
+
+// Products profit data
+async function getProductsProfitData(req) {
+  const { startDate, endDate, locationId } = req.query;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  // Get all sales within date range and with location filter if provided
+  const locationFilter = locationId && locationId !== 'All locations' 
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    : {};
+
+  // Aggregate sales to calculate profit by product
+  const productProfits = await Sale.aggregate([
+    {
+      $match: {
+        saleDate: { $gte: start, $lte: end },
+        isDeleted: false,
+        ...locationFilter
+      }
+    },
+    { $unwind: '$products' },
+    {
+      $lookup: {
+        from: 'products',
+        localField: 'products.product',
+        foreignField: '_id',
+        as: 'productData'
+      }
+    },
+    { $unwind: '$productData' },
+    {
+      $group: {
+        _id: '$products.product',
+        product: { $first: '$productData.productName' },
+        sku: { $first: '$productData.sku' },
+        totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
+        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+      }
+    },
+    {
+      $project: {
+        _id: 1,
+        product: 1,
+        sku: 1,
+        grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+      }
+    },
+    { $sort: { grossProfit: -1 } }
+  ]);
+
+  return productProfits;
+}
+
+// Categories profit data
+async function getCategoriesProfitData(req) {
+  const { startDate, endDate, locationId } = req.query;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  // Get all sales within date range and with location filter if provided
+  const locationFilter = locationId && locationId !== 'All locations' 
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    : {};
+
+  // Aggregate sales to calculate profit by category
+  const categoryProfits = await Sale.aggregate([
+    {
+      $match: {
+        saleDate: { $gte: start, $lte: end },
+        isDeleted: false,
+        ...locationFilter
+      }
+    },
+    { $unwind: '$products' },
+    {
+      $lookup: {
+        from: 'products',
+        localField: 'products.product',
+        foreignField: '_id',
+        as: 'productData'
+      }
+    },
+    { $unwind: '$productData' },
+    {
+      $lookup: {
+        from: 'categories',
+        localField: 'productData.category',
+        foreignField: '_id',
+        as: 'categoryData'
+      }
+    },
+    {
+      $unwind: {
+        path: '$categoryData',
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    {
+      $group: {
+        _id: '$productData.category',
+        category: { $first: { $ifNull: ['$categoryData.name', 'Uncategorized'] } },
+        totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
+        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+      }
+    },
+    {
+      $project: {
+        _id: 1,
+        category: 1,
+        grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+      }
+    },
+    { $sort: { grossProfit: -1 } }
+  ]);
+
+  // Calculate total
+  const total = categoryProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+  return {
+    data: categoryProfits,
+    total
+  };
+}
+
+// Brands profit data
+async function getBrandsProfitData(req) {
+  const { startDate, endDate, locationId } = req.query;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  // Get all sales within date range and with location filter if provided
+  const locationFilter = locationId && locationId !== 'All locations' 
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    : {};
+
+  // Aggregate sales to calculate profit by brand
+  const brandProfits = await Sale.aggregate([
+    {
+      $match: {
+        saleDate: { $gte: start, $lte: end },
+        isDeleted: false,
+        ...locationFilter
+      }
+    },
+    { $unwind: '$products' },
+    {
+      $lookup: {
+        from: 'products',
+        localField: 'products.product',
+        foreignField: '_id',
+        as: 'productData'
+      }
+    },
+    { $unwind: '$productData' },
+    {
+      $lookup: {
+        from: 'brands',
+        localField: 'productData.brand',
+        foreignField: '_id',
+        as: 'brandData'
+      }
+    },
+    {
+      $unwind: {
+        path: '$brandData',
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    {
+      $group: {
+        _id: '$productData.brand',
+        brand: { $first: { $ifNull: ['$brandData.name', 'No Brand'] } },
+        totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
+        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+      }
+    },
+    {
+      $project: {
+        _id: 1,
+        brand: 1,
+        grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+      }
+    },
+    { $sort: { grossProfit: -1 } }
+  ]);
+
+  return brandProfits;
+}
+
+// Locations profit data
+async function getLocationsProfitData(req) {
+  const { startDate, endDate } = req.query;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  // Aggregate sales to calculate profit by location
+  const locationProfits = await Sale.aggregate([
+    {
+      $match: {
+        saleDate: { $gte: start, $lte: end },
+        isDeleted: false,
+      }
+    },
+    { $unwind: '$products' },
+    {
+      $lookup: {
+        from: 'businesslocations',
+        localField: 'businessLocation',
+        foreignField: '_id',
+        as: 'locationData'
+      }
+    },
+    {
+      $unwind: '$locationData'
+    },
+    {
+      $group: {
+        _id: '$businessLocation',
+        location: { $first: '$locationData.name' },
+        totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
+        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+      }
+    },
+    {
+      $project: {
+        _id: 1,
+        location: 1,
+        grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+      }
+    },
+    { $sort: { location: 1 } }
+  ]);
+
+  // Calculate total
+  const total = locationProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+  return {
+    data: locationProfits,
+    total
+  };
+}
+
+// Invoice profit data
+async function getInvoiceProfitData(req) {
+  const { startDate, endDate, locationId } = req.query;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  // Get all sales within date range and with location filter if provided
+  const locationFilter = locationId && locationId !== 'All locations' 
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    : {};
+
+  // Aggregate sales to calculate profit by invoice
+  const invoiceProfits = await Sale.aggregate([
+    {
+      $match: {
+        saleDate: { $gte: start, $lte: end },
+        isDeleted: false,
+        ...locationFilter
+      }
+    },
+    {
+      $project: {
+        invoiceNo: 1,
+        saleDate: 1,
+        totalSales: { $ifNull: ['$total', 0] },
+        products: 1
+      }
+    },
+    {
+      $addFields: {
+        totalCost: {
+          $sum: {
+            $map: {
+              input: '$products',
+              as: 'product',
+              in: { 
+                $multiply: [
+                  { $ifNull: ['$$product.quantity', 0] }, 
+                  { $ifNull: ['$$product.originalUnitCost', 0] }
+                ] 
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      $project: {
+        _id: 1,
+        invoiceNo: 1,
+        saleDate: 1,
+        grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+      }
+    },
+    { $sort: { saleDate: -1 } }
+  ]);
+
+  return invoiceProfits;
+}
+
+// Date profit data
+async function getDateProfitData(req) {
+  const { startDate, endDate, locationId } = req.query;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  // Get all sales within date range and with location filter if provided
+  const locationFilter = locationId && locationId !== 'All locations' 
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    : {};
+
+  // Aggregate sales to calculate profit by date
+  const dateProfits = await Sale.aggregate([
+    {
+      $match: {
+        saleDate: { $gte: start, $lte: end },
+        isDeleted: false,
+        ...locationFilter
+      }
+    },
+    {
+      $project: {
+        saleDate: {
+          $dateToString: { format: '%Y-%m-%d', date: '$saleDate' }
+        },
+        totalSales: { $ifNull: ['$total', 0] },
+        products: 1
+      }
+    },
+    {
+      $addFields: {
+        totalCost: {
+          $sum: {
+            $map: {
+              input: '$products',
+              as: 'product',
+              in: { 
+                $multiply: [
+                  { $ifNull: ['$$product.quantity', 0] }, 
+                  { $ifNull: ['$$product.originalUnitCost', 0] }
+                ] 
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      $group: {
+        _id: '$saleDate',
+        date: { $first: '$saleDate' },
+        totalSales: { $sum: '$totalSales' },
+        totalCost: { $sum: '$totalCost' }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        date: 1,
+        grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+      }
+    },
+    { $sort: { date: -1 } }
+  ]);
+
+  return dateProfits;
+}
+
+// Customer profit data
+async function getCustomerProfitData(req) {
+  const { startDate, endDate, locationId } = req.query;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  // Get all sales within date range and with location filter if provided
+  const locationFilter = locationId && locationId !== 'All locations' 
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    : {};
+
+  // Aggregate sales to calculate profit by customer
+  const customerProfits = await Sale.aggregate([
+    {
+      $match: {
+        saleDate: { $gte: start, $lte: end },
+        isDeleted: false,
+        ...locationFilter
+      }
+    },
+    {
+      $lookup: {
+        from: 'contacts',
+        localField: 'customer',
+        foreignField: '_id',
+        as: 'customerData'
+      }
+    },
+    {
+      $unwind: {
+        path: '$customerData',
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    {
+      $addFields: {
+        customerName: {
+          $cond: [
+            { $ifNull: ['$customerData.businessName', false] },
+            { 
+              $concat: [
+                '$customerData.businessName',
+                ' ',
+                { $ifNull: ['$customerData.firstName', ''] },
+                ' ',
+                { $ifNull: ['$customerData.lastName', ''] }
+              ]
+            },
+            {
+              $concat: [
+                { $ifNull: ['$customerData.firstName', ''] },
+                ' ',
+                { $ifNull: ['$customerData.lastName', ''] }
+              ]
+            }
+          ]
+        },
+        totalSales: { $ifNull: ['$total', 0] },
+        totalCost: {
+          $sum: {
+            $map: {
+              input: '$products',
+              as: 'product',
+              in: { 
+                $multiply: [
+                  { $ifNull: ['$$product.quantity', 0] }, 
+                  { $ifNull: ['$$product.originalUnitCost', 0] }
+                ] 
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      $group: {
+        _id: '$customer',
+        customerName: { $first: '$customerName' },
+        totalSales: { $sum: '$totalSales' },
+        totalCost: { $sum: '$totalCost' }
+      }
+    },
+    {
+      $project: {
+        _id: 1,
+        customerName: 1,
+        grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+      }
+    },
+    { $sort: { grossProfit: -1 } }
+  ]);
+
+  return customerProfits;
+}
+
+// Day profit data
+async function getDayProfitData(req) {
+  const { startDate, endDate, locationId } = req.query;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  // Get all sales within date range and with location filter if provided
+  const locationFilter = locationId && locationId !== 'All locations' 
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    : {};
+
+  // Aggregate sales to calculate profit by day of week
+  const dayProfits = await Sale.aggregate([
+    {
+      $match: {
+        saleDate: { $gte: start, $lte: end },
+        isDeleted: false,
+        ...locationFilter
+      }
+    },
+    {
+      $addFields: {
+        dayOfWeek: { $dayOfWeek: '$saleDate' }, // 1 for Sunday, 2 for Monday, ..., 7 for Saturday
+        totalSales: { $ifNull: ['$total', 0] },
+        totalCost: {
+          $sum: {
+            $map: {
+              input: '$products',
+              as: 'product',
+              in: { 
+                $multiply: [
+                  { $ifNull: ['$$product.quantity', 0] }, 
+                  { $ifNull: ['$$product.originalUnitCost', 0] }
+                ] 
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      $group: {
+        _id: '$dayOfWeek',
+        totalSales: { $sum: '$totalSales' },
+        totalCost: { $sum: '$totalCost' }
+      }
+    },
+    {
+      $project: {
+        _id: 1,
+        dayName: {
+          $switch: {
+            branches: [
+              { case: { $eq: ['$_id', 1] }, then: 'Sunday' },
+              { case: { $eq: ['$_id', 2] }, then: 'Monday' },
+              { case: { $eq: ['$_id', 3] }, then: 'Tuesday' },
+              { case: { $eq: ['$_id', 4] }, then: 'Wednesday' },
+              { case: { $eq: ['$_id', 5] }, then: 'Thursday' },
+              { case: { $eq: ['$_id', 6] }, then: 'Friday' },
+              { case: { $eq: ['$_id', 7] }, then: 'Saturday' }
+            ],
+            default: 'Unknown'
+          }
+        },
+        grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+      }
+    },
+    { $sort: { _id: 1 } } // Sort by day of week
+  ]);
+
+  // Calculate total profit
+  const total = dayProfits.reduce((sum, day) => sum + day.grossProfit, 0);
+
+  return {
+    data: dayProfits,
+    total
+  };
 }
