@@ -57,7 +57,7 @@ exports.getPurchasePaymentReport = async (req, res) => {
             amount: payment.amount,
             supplier: purchase.supplier ? {
               id: purchase.supplier._id,
-              name: purchase.supplier.businessName || `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() || 'Unknown Supplier'
+              name: purchase.supplier.businessName ? purchase.supplier.businessName + ' ' + `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() : `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() || 'Unknown Supplier'
             } : { name: 'Unknown Supplier' },
             location: purchase.businessLocation?.name || 'Unknown Location',
             paymentMethod: payment.method?.name || 'Unknown Method',

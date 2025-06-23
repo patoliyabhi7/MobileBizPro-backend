@@ -60,23 +60,31 @@ exports.getCustomerSupplierReport = async (req, res) => {
         supplier: contactId,
         purchaseDate: dateFilter,
         isDeleted: { $ne: true },
+        createdFromReturn: { $ne: true },
         ...locationFilter
       });
       
       const totalPurchase = purchases.reduce((total, purchase) => {
-        return total + (purchase.grandTotal || 0);
+        return total + (purchase.totalAmountWithGst || purchase.total || 0);
       }, 0);
       
       // Get total purchase returns for this contact
       const purchaseReturns = await PurchaseReturn.find({
-        supplier: contactId,
         returnDate: dateFilter,
         isDeleted: { $ne: true },
         ...locationFilter
+      }).populate({
+        path: 'originalPurchase',
+        match: { supplier: contactId }
       });
       
-      const totalPurchaseReturn = purchaseReturns.reduce((total, purchaseReturn) => {
-        return total + (purchaseReturn.totalAmount || 0);
+      // Filter out returns whose originalPurchase doesn't match the supplier or was not populated
+      const filteredPurchaseReturns = purchaseReturns.filter(
+        pr => pr.originalPurchase && pr.originalPurchase.supplier.toString() === contactId.toString()
+      );
+      
+      const totalPurchaseReturn = filteredPurchaseReturns.reduce((total, purchaseReturn) => {
+        return total + (purchaseReturn.totalReturnAmountWithGst || purchaseReturn.totalReturnAmount || 0);
       }, 0);
       
       // Get total sales for this contact
@@ -88,20 +96,40 @@ exports.getCustomerSupplierReport = async (req, res) => {
       });
       
       const totalSale = sales.reduce((total, sale) => {
-        return total + (sale.grandTotal || 0);
+        return total + (sale.totalAmountWithGst || sale.total || 0);
       }, 0);
       
-      // Get total sale returns for this contact
-      const saleReturns = await SaleReturn.find({
-        customer: contactId,
-        returnDate: dateFilter,
+      // Get total sale returns from the Purchase model where createdFromReturn=true
+      const saleReturnPurchases = await Purchase.find({
+        createdFromReturn: true,
+        purchaseDate: dateFilter,
         isDeleted: { $ne: true },
         ...locationFilter
       });
       
-      const totalSaleReturn = saleReturns.reduce((total, saleReturn) => {
-        return total + (saleReturn.totalAmount || 0);
-      }, 0);
+      // Filter the purchases to those that have a saleReturn with this contact as the customer
+      const filteredSaleReturnPurchases = await Promise.all(
+        saleReturnPurchases.map(async purchase => {
+          if (!purchase.saleReturnRef) return null;
+          
+          const saleReturn = await SaleReturn.findById(purchase.saleReturnRef)
+            .populate('originalSale', 'customer');
+          
+          if (saleReturn && 
+              saleReturn.originalSale && 
+              saleReturn.originalSale.customer && 
+              saleReturn.originalSale.customer.toString() === contactId.toString()) {
+            return purchase;
+          }
+          return null;
+        })
+      );
+      
+      const totalSaleReturn = filteredSaleReturnPurchases
+        .filter(p => p !== null)
+        .reduce((total, purchase) => {
+          return total + (purchase.totalAmountWithGst || purchase.total || 0);
+        }, 0);
       
       // Get opening balance - from contact record directly
       const openingBalanceDue = contact.openingBalance || 0;
@@ -144,7 +172,7 @@ exports.getCustomerSupplierReport = async (req, res) => {
       }
       
       // Format the contact name
-      const contactName = contact.businessName || 
+      const contactName = contact.businessName ? contact.businessName + ' ' + `${contact.firstName || ''} ${contact.lastName || ''}`.trim() :
         `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
       
       return {

@@ -195,7 +195,7 @@ exports.getItemsReport = async (req, res) => {
           purchaseDate: purchase.purchaseDate,
           purchase: purchase.referenceNo,
           availableQty,
-          supplier: purchase.supplier ? purchase.supplier.businessName || `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() : 'Unknown Supplier',
+          supplier: purchase.supplier ? purchase.supplier.businessName ? purchase.supplier.businessName + ' ' + `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() : `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() : 'Unknown Supplier',
           purchasePrice: product.unitCost,
           purchaseTotal: product.unitCost * availableQty
         });
@@ -268,7 +268,7 @@ exports.getItemsReport = async (req, res) => {
           purchaseDate: saleReturn.purchaseDate,
           purchase: saleReturn.referenceNo,
           availableQty,
-          supplier: saleReturn.supplier ? saleReturn.supplier.businessName || `${saleReturn.supplier.firstName || ''} ${saleReturn.supplier.lastName || ''}`.trim() : 'Unknown Supplier',
+          supplier: saleReturn.supplier ? saleReturn.supplier.businessName ? saleReturn.supplier.businessName + ' ' + `${saleReturn.supplier.firstName || ''} ${saleReturn.supplier.lastName || ''}`.trim() : `${saleReturn.supplier.firstName || ''} ${saleReturn.supplier.lastName || ''}`.trim() : 'Unknown Supplier',
           purchasePrice: purchasePrice,
           purchaseTotal: purchasePrice * availableQty,
           isReturn: true // Mark as return for UI distinction if needed

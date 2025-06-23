@@ -105,7 +105,7 @@ exports.getProductPurchaseReport = async (req, res) => {
           type: 'purchase',
           product: productItem.product.productName,
           sku: productItem.product.sku,
-          supplier: purchase.supplier ? purchase.supplier.businessName + ' ' + `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() : 'Unknown Supplier',
+          supplier: purchase.supplier ? purchase.supplier.businessName ? purchase.supplier.businessName + ' ' + `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() : `${purchase.supplier.firstName || ''} ${purchase.supplier.lastName || ''}`.trim() : 'Unknown Supplier',
           referenceNo: purchase.referenceNo,
           date: purchase.purchaseDate,
           quantity: productItem.quantity,
