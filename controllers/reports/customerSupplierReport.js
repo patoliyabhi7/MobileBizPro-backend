@@ -24,10 +24,12 @@ exports.getCustomerSupplierReport = async (req, res) => {
       $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
     };
 
-    // Location filter
-    const locationFilter = locationId && locationId !== 'All locations' 
-      ? { businessLocation: locationId } 
-      : {};
+    // Location filter - ensure proper filtering of location data
+    let parsedLocationId = null;
+    if (locationId && locationId !== 'All locations') {
+      // Convert locationId to ObjectId if it's a string
+      parsedLocationId = locationId;
+    }
 
     // Contact type filter (customer, supplier, or both)
     const contactTypeFilter = {};
@@ -45,23 +47,25 @@ exports.getCustomerSupplierReport = async (req, res) => {
     const contactFilters = {
       ...contactTypeFilter,
       ...specificContactFilter,
-      isDeleted: { $ne: true }
+      isDeleted: false
     };
 
     // 1. Get all contacts based on filters
-    const contacts = await Contact.find(contactFilters).select('_id firstName lastName businessName contactType');
+    const contacts = await Contact.find(contactFilters).select('_id firstName lastName businessName contactType mobile email contactId');
+    
+    console.log(`Found ${contacts.length} contacts with filters:`, contactFilters);
 
     // 2. Process each contact to get their transaction data
     const contactReportData = await Promise.all(contacts.map(async (contact) => {
       const contactId = contact._id;
       
-      // Get total purchases for this contact
+      // Get total purchases for this contact with all filters in a single query
       const purchases = await Purchase.find({ 
         supplier: contactId,
         purchaseDate: dateFilter,
         isDeleted: { $ne: true },
         createdFromReturn: { $ne: true },
-        ...locationFilter
+        ...(parsedLocationId ? { businessLocation: parsedLocationId } : {})
       });
       
       const totalPurchase = purchases.reduce((total, purchase) => {
@@ -72,10 +76,10 @@ exports.getCustomerSupplierReport = async (req, res) => {
       const purchaseReturns = await PurchaseReturn.find({
         returnDate: dateFilter,
         isDeleted: { $ne: true },
-        ...locationFilter
+        ...(parsedLocationId ? { businessLocation: parsedLocationId } : {})
       }).populate({
         path: 'originalPurchase',
-        match: { supplier: contactId }
+        match: { supplier: contactId, isDeleted: { $ne: true } }
       });
       
       // Filter out returns whose originalPurchase doesn't match the supplier or was not populated
@@ -92,7 +96,7 @@ exports.getCustomerSupplierReport = async (req, res) => {
         customer: contactId,
         saleDate: dateFilter,
         isDeleted: { $ne: true },
-        ...locationFilter
+        ...(parsedLocationId ? { businessLocation: parsedLocationId } : {})
       });
       
       const totalSale = sales.reduce((total, sale) => {
@@ -104,38 +108,37 @@ exports.getCustomerSupplierReport = async (req, res) => {
         createdFromReturn: true,
         purchaseDate: dateFilter,
         isDeleted: { $ne: true },
-        ...locationFilter
+        ...(parsedLocationId ? { businessLocation: parsedLocationId } : {})
+      }).populate({
+        path: 'saleReturnRef',
+        match: { isDeleted: { $ne: true } },
+        populate: {
+          path: 'originalSale',
+          select: 'customer',
+          match: { isDeleted: { $ne: true } }
+        }
       });
       
       // Filter the purchases to those that have a saleReturn with this contact as the customer
-      const filteredSaleReturnPurchases = await Promise.all(
-        saleReturnPurchases.map(async purchase => {
-          if (!purchase.saleReturnRef) return null;
-          
-          const saleReturn = await SaleReturn.findById(purchase.saleReturnRef)
-            .populate('originalSale', 'customer');
-          
-          if (saleReturn && 
-              saleReturn.originalSale && 
-              saleReturn.originalSale.customer && 
-              saleReturn.originalSale.customer.toString() === contactId.toString()) {
-            return purchase;
-          }
-          return null;
-        })
+      const filteredSaleReturnPurchases = saleReturnPurchases.filter(purchase => 
+        purchase.saleReturnRef && 
+        purchase.saleReturnRef.originalSale && 
+        purchase.saleReturnRef.originalSale.customer && 
+        purchase.saleReturnRef.originalSale.customer.toString() === contactId.toString()
       );
       
-      const totalSaleReturn = filteredSaleReturnPurchases
-        .filter(p => p !== null)
-        .reduce((total, purchase) => {
-          return total + (purchase.totalAmountWithGst || purchase.total || 0);
-        }, 0);
+      const totalSaleReturn = filteredSaleReturnPurchases.reduce((total, purchase) => {
+        return total + (purchase.totalAmountWithGst || purchase.total || 0);
+      }, 0);
       
       // Get opening balance - from contact record directly
       const openingBalanceDue = contact.openingBalance || 0;
       
       // Calculate current due amount based on the type of transactions the contact has
       let currentDue = 0;
+      
+      // Add opening balance to current due
+      currentDue += openingBalanceDue;
       
       // Check if contact has supplier transactions
       const hasSupplierTransactions = totalPurchase > 0 || totalPurchaseReturn > 0;
@@ -179,6 +182,8 @@ exports.getCustomerSupplierReport = async (req, res) => {
         contactId: contact._id,
         contactName,
         contactType: contact.contactType,
+        mobile: contact.mobile,
+        systemContactId: contact.contactId,
         totalPurchase,
         totalPurchaseReturn,
         totalSale,
@@ -209,7 +214,34 @@ exports.getCustomerSupplierReport = async (req, res) => {
       }
     );
     
-    // 4. Format the response
+    // 4. Combine duplicate contacts
+    const uniqueContactsMap = new Map();
+    
+    contactReportData.forEach(contact => {
+      // Use the MongoDB _id directly for uniqueness check
+      const uniqueKey = contact.contactId.toString();
+      
+      if (uniqueContactsMap.has(uniqueKey)) {
+        // If contact already exists in our map, combine the values
+        const existingContact = uniqueContactsMap.get(uniqueKey);
+        existingContact.totalPurchase += contact.totalPurchase;
+        existingContact.totalPurchaseReturn += contact.totalPurchaseReturn;
+        existingContact.totalSale += contact.totalSale;
+        existingContact.totalSaleReturn += contact.totalSaleReturn;
+        existingContact.openingBalanceDue += contact.openingBalanceDue;
+        existingContact.currentDue += contact.currentDue;
+      } else {
+        // Add to map if first occurrence
+        uniqueContactsMap.set(uniqueKey, { ...contact });
+      }
+    });
+    
+    // Convert map back to array
+    const uniqueContactsArray = Array.from(uniqueContactsMap.values());
+    
+    console.log(`After deduplication: ${uniqueContactsArray.length} contacts`);
+    
+    // 5. Format the response
     const response = {
       filters: {
         startDate,
@@ -218,26 +250,32 @@ exports.getCustomerSupplierReport = async (req, res) => {
         contactType: contactType || 'All',
         contactId: contactId || 'All'
       },
-      contacts: contactReportData.map(contact => ({
+      contacts: uniqueContactsArray.map(contact => ({
         contactName: contact.contactName,
         contactId: contact.contactId,
         contactType: contact.contactType,
-        totalPurchase: contact.totalPurchase.toFixed(2),
-        totalPurchaseReturn: contact.totalPurchaseReturn.toFixed(2),
-        totalSale: contact.totalSale.toFixed(2),
-        totalSaleReturn: contact.totalSaleReturn.toFixed(2),
-        openingBalanceDue: contact.openingBalanceDue.toFixed(2),
-        due: contact.currentDue.toFixed(2)
+        mobile: contact.mobile,
+        systemContactId: contact.systemContactId,
+        totalPurchase: Number(contact.totalPurchase).toFixed(2),
+        totalPurchaseReturn: Number(contact.totalPurchaseReturn).toFixed(2),
+        totalSale: Number(contact.totalSale).toFixed(2),
+        totalSaleReturn: Number(contact.totalSaleReturn).toFixed(2),
+        openingBalanceDue: Number(contact.openingBalanceDue).toFixed(2),
+        due: Number(contact.currentDue).toFixed(2)
       })),
       totals: {
-        totalPurchase: totals.totalPurchase.toFixed(2),
-        totalPurchaseReturn: totals.totalPurchaseReturn.toFixed(2),
-        totalSale: totals.totalSale.toFixed(2),
-        totalSaleReturn: totals.totalSaleReturn.toFixed(2),
-        openingBalanceDue: totals.openingBalanceDue.toFixed(2),
-        due: totals.currentDue.toFixed(2)
+        totalPurchase: Number(totals.totalPurchase).toFixed(2),
+        totalPurchaseReturn: Number(totals.totalPurchaseReturn).toFixed(2),
+        totalSale: Number(totals.totalSale).toFixed(2),
+        totalSaleReturn: Number(totals.totalSaleReturn).toFixed(2),
+        openingBalanceDue: Number(totals.openingBalanceDue).toFixed(2),
+        due: Number(totals.currentDue).toFixed(2)
       }
     };
+    
+    // Log for debugging
+    console.log('Generated customer supplier report with filter:', 
+      { startDate, endDate, locationId, contactType, contactId });
     
     res.status(200).json(response);
   } catch (err) {
