@@ -59,15 +59,15 @@ exports.getCustomerSupplierReport = async (req, res) => {
     const contactReportData = await Promise.all(contacts.map(async (contact) => {
       const contactId = contact._id;
       
-      // Get total purchases for this contact with all filters in a single query
+      // Get total purchases for this contact with all filters in a single query - include ALL purchases
       const purchases = await Purchase.find({ 
         supplier: contactId,
         purchaseDate: dateFilter,
-        isDeleted: { $ne: true },
-        createdFromReturn: { $ne: true },
+        isDeleted: false,
         ...(parsedLocationId ? { businessLocation: parsedLocationId } : {})
       });
       
+      // Calculate total purchases (including both regular purchases and those created from returns)
       const totalPurchase = purchases.reduce((total, purchase) => {
         return total + (purchase.totalAmountWithGst || purchase.total || 0);
       }, 0);
@@ -95,7 +95,7 @@ exports.getCustomerSupplierReport = async (req, res) => {
       const sales = await Sale.find({
         customer: contactId,
         saleDate: dateFilter,
-        isDeleted: { $ne: true },
+        isDeleted: false,
         ...(parsedLocationId ? { businessLocation: parsedLocationId } : {})
       });
       
@@ -103,23 +103,23 @@ exports.getCustomerSupplierReport = async (req, res) => {
         return total + (sale.totalAmountWithGst || sale.total || 0);
       }, 0);
       
-      // Get total sale returns from the Purchase model where createdFromReturn=true
+      // Get sale returns data directly from Purchase model where createdFromReturn=true
       const saleReturnPurchases = await Purchase.find({
         createdFromReturn: true,
         purchaseDate: dateFilter,
-        isDeleted: { $ne: true },
+        isDeleted: false,
         ...(parsedLocationId ? { businessLocation: parsedLocationId } : {})
       }).populate({
         path: 'saleReturnRef',
-        match: { isDeleted: { $ne: true } },
+        match: { isDeleted: false },
         populate: {
           path: 'originalSale',
           select: 'customer',
-          match: { isDeleted: { $ne: true } }
+          match: { isDeleted: false }
         }
       });
       
-      // Filter the purchases to those that have a saleReturn with this contact as the customer
+      // Filter to get only those purchases/returns that belong to this customer
       const filteredSaleReturnPurchases = saleReturnPurchases.filter(purchase => 
         purchase.saleReturnRef && 
         purchase.saleReturnRef.originalSale && 
@@ -127,6 +127,7 @@ exports.getCustomerSupplierReport = async (req, res) => {
         purchase.saleReturnRef.originalSale.customer.toString() === contactId.toString()
       );
       
+      // Calculate total sale returns from the Purchase model data
       const totalSaleReturn = filteredSaleReturnPurchases.reduce((total, purchase) => {
         return total + (purchase.totalAmountWithGst || purchase.total || 0);
       }, 0);
@@ -156,7 +157,9 @@ exports.getCustomerSupplierReport = async (req, res) => {
           }, 0);
         }, 0);
         
-        const customerDue = totalSale - totalSaleReturn - totalPaymentsReceived;
+        // For customer transactions, sale return is already handled as a purchase payment 
+        // when it's converted to a purchase, so don't subtract it again here
+        const customerDue = totalSale - totalPaymentsReceived;
         currentDue += customerDue;
       }
       
