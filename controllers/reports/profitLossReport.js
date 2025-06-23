@@ -4,15 +4,46 @@ const Purchase = require('../../models/purchaseModel');
 const Expense = require('../../models/expenseModel');
 const SaleReturn = require('../../models/saleReturnModel');
 const PurchaseReturn = require('../../models/purchaseReturnModel');
+const mongoose = require('mongoose');
+const Product = require('../../models/productModel');
+const Category = require('../../models/categoryModel');
+const Brand = require('../../models/brandModel');
+const BusinessLocation = require('../../models/businessLocationModel');
+const Contact = require('../../models/contactModel');
 
 exports.getProfitLossReport = async (req, res) => {
   try {
-    const { startDate, endDate, locationId } = req.query;
+    const { startDate, endDate, locationId, reportType } = req.query;
 
     if (!startDate || !endDate) {
       return res.status(400).json({ error: 'Start date and end date are required' });
     }
 
+    // If reportType is specified, generate that specific profit report
+    if (reportType) {
+      switch (reportType) {
+        case 'products':
+          return await getProfitByProducts(req, res);
+        case 'categories':
+          return await getProfitByCategories(req, res);
+        case 'brands':
+          return await getProfitByBrands(req, res);
+        case 'locations':
+          return await getProfitByLocations(req, res);
+        case 'invoice':
+          return await getProfitByInvoice(req, res);
+        case 'date':
+          return await getProfitByDate(req, res);
+        case 'customer':
+          return await getProfitByCustomer(req, res);
+        case 'day':
+          return await getProfitByDay(req, res);
+        default:
+          break;
+      }
+    }
+
+    // Continue with the standard profit/loss report if no specific type is requested
     const locationFilter = locationId && locationId !== 'All locations' ? { businessLocation: locationId } : {};
     
     // Define date ranges
@@ -25,58 +56,83 @@ exports.getProfitLossReport = async (req, res) => {
       ...query,
       ...locationFilter,
       [dateField]: { $gte: start, $lte: end },
-      isDeleted: { $ne: true }
+      isDeleted: false
     });
 
     // Get opening stock (stock before start date)
     const getOpeningStockValue = async () => {
-      // Get all stock items available before start date
-      const stockBeforeStart = await Stock.find({
-        ...locationFilter,
-        createdAt: { $lt: start }
-      }).populate('product');
-
-      let purchaseValue = 0;
-      let saleValue = 0;
-
-      // Calculate values based on unit cost and selling price
-      for (const item of stockBeforeStart) {
-        const qty = item.quantity || 0;
-        purchaseValue += qty * (item.unitCost || 0);
-        saleValue += qty * (item.product?.sellingPrice || 0);
+      try {
+        console.log('Calculating opening stock value as of', start);
+        
+        // Get all stock items as of start date, using the quantity field directly
+        const stocks = await Stock.find({
+          ...locationFilter,
+          isDeleted: false,
+          createdAt: { $lt: start },
+          quantity: { $gt: 0 } // Only include items with stock
+        }).populate('product');
+        
+        let purchaseValue = 0;
+        let saleValue = 0;
+        
+        // Calculate stock values based on the quantity field in stock model
+        for (const stock of stocks) {
+          if (stock.product) {
+            purchaseValue += stock.quantity * stock.unitCost;
+            saleValue += stock.quantity * (stock.product.sellingPrice || 0);
+          }
+        }
+        
+        return { purchaseValue, saleValue };
+      } catch (error) {
+        console.error('Error calculating opening stock:', error);
+        return { purchaseValue: 0, saleValue: 0 };
       }
-
-      return { purchaseValue, saleValue };
     };
 
     // Get closing stock (current stock at end date)
     const getClosingStockValue = async () => {
-      // Get all stock items available at or before end date
-      const stockAtEnd = await Stock.find({
-        ...locationFilter,
-        createdAt: { $lte: end }
-      }).populate('product');
-
-      let purchaseValue = 0;
-      let saleValue = 0;
-
-      // Calculate values based on unit cost and selling price
-      for (const item of stockAtEnd) {
-        const qty = item.quantity || 0;
-        purchaseValue += qty * (item.unitCost || 0);
-        saleValue += qty * (item.product?.sellingPrice || 0);
+      try {
+        console.log('Calculating closing stock value as of', end);
+        
+        // Get all stock items as of end date, using the quantity field directly
+        const stocks = await Stock.find({
+          ...locationFilter,
+          isDeleted: false,
+          createdAt: { $lte: end },
+          quantity: { $gt: 0 } // Only include items with stock
+        }).populate('product');
+        
+        let purchaseValue = 0;
+        let saleValue = 0;
+        
+        // Calculate stock values based on the quantity field in stock model
+        for (const stock of stocks) {
+          if (stock.product) {
+            purchaseValue += stock.quantity * stock.unitCost;
+            saleValue += stock.quantity * (stock.product.sellingPrice || 0);
+          }
+        }
+        
+        console.log(`Closing stock: Purchase value: ${purchaseValue}, Sale value: ${saleValue}`);
+        return { purchaseValue, saleValue };
+      } catch (error) {
+        console.error('Error calculating closing stock:', error);
+        return { purchaseValue: 0, saleValue: 0 };
       }
-
-      return { purchaseValue, saleValue };
     };
 
     // Get total purchases
     const getTotalPurchases = async () => {
       const purchases = await Purchase.find(addFilters({}, 'purchaseDate'));
       return purchases.reduce((total, purchase) => {
-        // Sum up total purchase amount
+        // Use total from purchase document if available
+        if (purchase.totalAmountWithGst) return total + purchase.totalAmountWithGst;
+        if (purchase.total) return total + purchase.total;
+        
+        // Fall back to calculating from products if total isn't available
         const purchaseTotal = purchase.products.reduce((sum, product) => {
-          return sum + (product.quantity * product.unitCost || 0);
+          return sum + ((product.quantity || 0) * (product.unitCost || 0));
         }, 0);
         return total + purchaseTotal;
       }, 0);
@@ -86,9 +142,13 @@ exports.getProfitLossReport = async (req, res) => {
     const getTotalSales = async () => {
       const sales = await Sale.find(addFilters({}, 'saleDate'));
       return sales.reduce((total, sale) => {
-        // Sum up total sale amount
+        // Use total from sale document if available
+        if (sale.totalAmountWithGst) return total + sale.totalAmountWithGst;
+        if (sale.total) return total + sale.total;
+        
+        // Fall back to calculating from products if total isn't available
         const saleTotal = sale.products.reduce((sum, product) => {
-          return sum + (product.quantity * product.unitPrice || 0);
+          return sum + ((product.quantity || 0) * (product.unitPrice || 0));
         }, 0);
         return total + saleTotal;
       }, 0);
@@ -98,7 +158,7 @@ exports.getProfitLossReport = async (req, res) => {
     const getTotalExpenses = async () => {
       const expenses = await Expense.find(addFilters({}, 'transactionDate'));
       return expenses.reduce((total, expense) => {
-        return total + (expense.amount || 0);
+        return total + (expense.totalAmount || 0);
       }, 0);
     };
 
@@ -158,7 +218,7 @@ exports.getProfitLossReport = async (req, res) => {
     const getSaleReturns = async () => {
       const returns = await SaleReturn.find(addFilters({}, 'returnDate'));
       return returns.reduce((total, ret) => {
-        return total + (ret.totalAmount || 0);
+        return total + (ret.totalReturnAmountWithGst || ret.totalReturnAmount || 0);
       }, 0);
     };
 
@@ -166,7 +226,7 @@ exports.getProfitLossReport = async (req, res) => {
     const getPurchaseReturns = async () => {
       const returns = await PurchaseReturn.find(addFilters({}, 'returnDate'));
       return returns.reduce((total, ret) => {
-        return total + (ret.totalAmount || 0);
+        return total + (ret.totalReturnAmountWithGst || ret.totalReturnAmount || 0);
       }, 0);
     };
 
@@ -242,9 +302,10 @@ exports.getProfitLossReport = async (req, res) => {
     ]);
 
     // Calculate Gross Profit
-    const grossProfit = totalSales - totalPurchase;
+    // Gross profit = Total sales - Total purchases + Purchase returns - Sale returns
+    const grossProfit = totalSales - totalPurchase + purchaseReturn - saleReturn;
 
-    // Calculate Net Profit based on the formula in the image
+    // Calculate Net Profit based on formula
     const netProfit = grossProfit + 
                       (sellShippingCharge + sellAdditionalExpenses + stockRecovered + purchaseDiscount + sellRoundOff) -
                       (stockAdjustment + totalExpense + purchaseShippingCharge + transferShippingCharge + purchaseAdditionalExpenses + sellDiscount + customerReward);
@@ -256,35 +317,35 @@ exports.getProfitLossReport = async (req, res) => {
       locationId: locationId || 'All locations',
       // Left column (costs)
       openingStock: {
-        byPurchasePrice: openingStock.purchaseValue.toFixed(2),
-        bySalePrice: openingStock.saleValue.toFixed(2)
+        byPurchasePrice: parseFloat(openingStock.purchaseValue).toFixed(2),
+        bySalePrice: parseFloat(openingStock.saleValue).toFixed(2)
       },
-      totalPurchase: totalPurchase.toFixed(2),
-      totalStockAdjustment: stockAdjustment.toFixed(2),
-      totalExpense: totalExpense.toFixed(2),
-      totalPurchaseShippingCharge: purchaseShippingCharge.toFixed(2),
-      purchaseAdditionalExpenses: purchaseAdditionalExpenses.toFixed(2),
-      totalTransferShippingCharge: transferShippingCharge.toFixed(2),
-      totalSellDiscount: sellDiscount.toFixed(2),
-      totalCustomerReward: customerReward.toFixed(2),
-      totalSaleReturn: saleReturn.toFixed(2),
+      totalPurchase: parseFloat(totalPurchase).toFixed(2),
+      totalStockAdjustment: parseFloat(stockAdjustment).toFixed(2),
+      totalExpense: parseFloat(totalExpense).toFixed(2),
+      totalPurchaseShippingCharge: parseFloat(purchaseShippingCharge).toFixed(2),
+      purchaseAdditionalExpenses: parseFloat(purchaseAdditionalExpenses).toFixed(2),
+      totalTransferShippingCharge: parseFloat(transferShippingCharge).toFixed(2),
+      totalSellDiscount: parseFloat(sellDiscount).toFixed(2),
+      totalCustomerReward: parseFloat(customerReward).toFixed(2),
+      totalSaleReturn: parseFloat(saleReturn).toFixed(2),
       
       // Right column (income)
       closingStock: {
-        byPurchasePrice: closingStock.purchaseValue.toFixed(2),
-        bySalePrice: closingStock.saleValue.toFixed(2)
+        byPurchasePrice: parseFloat(closingStock.purchaseValue).toFixed(2),
+        bySalePrice: parseFloat(closingStock.saleValue).toFixed(2)
       },
-      totalSales: totalSales.toFixed(2),
-      totalSellShippingCharge: sellShippingCharge.toFixed(2),
-      sellAdditionalExpenses: sellAdditionalExpenses.toFixed(2),
-      totalStockRecovered: stockRecovered.toFixed(2),
-      totalPurchaseReturn: purchaseReturn.toFixed(2),
-      totalPurchaseDiscount: purchaseDiscount.toFixed(2),
-      totalSellRoundOff: sellRoundOff.toFixed(2),
+      totalSales: parseFloat(totalSales).toFixed(2),
+      totalSellShippingCharge: parseFloat(sellShippingCharge).toFixed(2),
+      sellAdditionalExpenses: parseFloat(sellAdditionalExpenses).toFixed(2),
+      totalStockRecovered: parseFloat(stockRecovered).toFixed(2),
+      totalPurchaseReturn: parseFloat(purchaseReturn).toFixed(2),
+      totalPurchaseDiscount: parseFloat(purchaseDiscount).toFixed(2),
+      totalSellRoundOff: parseFloat(sellRoundOff).toFixed(2),
       
       // Profit calculations
-      grossProfit: grossProfit.toFixed(2),
-      netProfit: netProfit.toFixed(2)
+      grossProfit: parseFloat(grossProfit).toFixed(2),
+      netProfit: parseFloat(netProfit).toFixed(2)
     };
 
     res.status(200).json(report);
@@ -293,3 +354,606 @@ exports.getProfitLossReport = async (req, res) => {
     res.status(500).json({ error: err.message || 'Error generating profit/loss report' });
   }
 };
+
+// Internal helper functions for different profit report types
+async function getProfitByProducts(req, res) {
+  try {
+    const { startDate, endDate, locationId } = req.query;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    // Get all sales within date range and with location filter if provided
+    const locationFilter = locationId && locationId !== 'All locations' 
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+      : {};
+
+    // Aggregate sales to calculate profit by product
+    const productProfits = await Sale.aggregate([
+      {
+        $match: {
+          saleDate: { $gte: start, $lte: end },
+          isDeleted: false,
+          ...locationFilter
+        }
+      },
+      { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products.product',
+          foreignField: '_id',
+          as: 'productData'
+        }
+      },
+      { $unwind: '$productData' },
+      {
+        $group: {
+          _id: '$products.product',
+          product: { $first: '$productData.productName' },
+          sku: { $first: '$productData.sku' },
+          totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
+          totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          product: 1,
+          sku: 1,
+          grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+        }
+      },
+      { $sort: { grossProfit: -1 } }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: productProfits
+    });
+  } catch (err) {
+    console.error('Error generating profit by products report:', err);
+    return res.status(500).json({ error: err.message || 'Error generating profit report' });
+  }
+}
+
+async function getProfitByCategories(req, res) {
+  try {
+    const { startDate, endDate, locationId } = req.query;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    // Get all sales within date range and with location filter if provided
+    const locationFilter = locationId && locationId !== 'All locations' 
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+      : {};
+
+    // Aggregate sales to calculate profit by category
+    const categoryProfits = await Sale.aggregate([
+      {
+        $match: {
+          saleDate: { $gte: start, $lte: end },
+          isDeleted: false,
+          ...locationFilter
+        }
+      },
+      { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products.product',
+          foreignField: '_id',
+          as: 'productData'
+        }
+      },
+      { $unwind: '$productData' },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'productData.category',
+          foreignField: '_id',
+          as: 'categoryData'
+        }
+      },
+      {
+        $unwind: {
+          path: '$categoryData',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $group: {
+          _id: '$productData.category',
+          category: { $first: { $ifNull: ['$categoryData.name', 'Uncategorized'] } },
+          totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
+          totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          category: 1,
+          grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+        }
+      },
+      { $sort: { grossProfit: -1 } }
+    ]);
+
+    // Calculate total
+    const total = categoryProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+    return res.status(200).json({
+      success: true,
+      data: categoryProfits,
+      total
+    });
+  } catch (err) {
+    console.error('Error generating profit by categories report:', err);
+    return res.status(500).json({ error: err.message || 'Error generating profit report' });
+  }
+}
+
+async function getProfitByBrands(req, res) {
+  try {
+    const { startDate, endDate, locationId } = req.query;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    // Get all sales within date range and with location filter if provided
+    const locationFilter = locationId && locationId !== 'All locations' 
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+      : {};
+
+    // Aggregate sales to calculate profit by brand
+    const brandProfits = await Sale.aggregate([
+      {
+        $match: {
+          saleDate: { $gte: start, $lte: end },
+          isDeleted: false,
+          ...locationFilter
+        }
+      },
+      { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products.product',
+          foreignField: '_id',
+          as: 'productData'
+        }
+      },
+      { $unwind: '$productData' },
+      {
+        $lookup: {
+          from: 'brands',
+          localField: 'productData.brand',
+          foreignField: '_id',
+          as: 'brandData'
+        }
+      },
+      {
+        $unwind: {
+          path: '$brandData',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $group: {
+          _id: '$productData.brand',
+          brand: { $first: { $ifNull: ['$brandData.name', 'No Brand'] } },
+          totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
+          totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          brand: 1,
+          grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+        }
+      },
+      { $sort: { grossProfit: -1 } }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: brandProfits
+    });
+  } catch (err) {
+    console.error('Error generating profit by brands report:', err);
+    return res.status(500).json({ error: err.message || 'Error generating profit report' });
+  }
+}
+
+async function getProfitByLocations(req, res) {
+  try {
+    const { startDate, endDate } = req.query;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    // Aggregate sales to calculate profit by location
+    const locationProfits = await Sale.aggregate([
+      {
+        $match: {
+          saleDate: { $gte: start, $lte: end },
+          isDeleted: false,
+        }
+      },
+      { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'businesslocations',
+          localField: 'businessLocation',
+          foreignField: '_id',
+          as: 'locationData'
+        }
+      },
+      {
+        $unwind: '$locationData'
+      },
+      {
+        $group: {
+          _id: '$businessLocation',
+          location: { $first: '$locationData.name' },
+          totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
+          totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          location: 1,
+          grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+        }
+      },
+      { $sort: { location: 1 } }
+    ]);
+
+    // Calculate total
+    const total = locationProfits.reduce((sum, item) => sum + item.grossProfit, 0);
+
+    return res.status(200).json({
+      success: true,
+      data: locationProfits,
+      total
+    });
+  } catch (err) {
+    console.error('Error generating profit by locations report:', err);
+    return res.status(500).json({ error: err.message || 'Error generating profit report' });
+  }
+}
+
+async function getProfitByInvoice(req, res) {
+  try {
+    const { startDate, endDate, locationId } = req.query;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    // Get all sales within date range and with location filter if provided
+    const locationFilter = locationId && locationId !== 'All locations' 
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+      : {};
+
+    // Aggregate sales to calculate profit by invoice
+    const invoiceProfits = await Sale.aggregate([
+      {
+        $match: {
+          saleDate: { $gte: start, $lte: end },
+          isDeleted: false,
+          ...locationFilter
+        }
+      },
+      {
+        $project: {
+          invoiceNo: 1,
+          saleDate: 1,
+          totalSales: { $ifNull: ['$total', 0] },
+          products: 1
+        }
+      },
+      {
+        $addFields: {
+          totalCost: {
+            $sum: {
+              $map: {
+                input: '$products',
+                as: 'product',
+                in: { 
+                  $multiply: [
+                    { $ifNull: ['$$product.quantity', 0] }, 
+                    { $ifNull: ['$$product.originalUnitCost', 0] }
+                  ] 
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          invoiceNo: 1,
+          saleDate: 1,
+          grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+        }
+      },
+      { $sort: { saleDate: -1 } }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: invoiceProfits
+    });
+  } catch (err) {
+    console.error('Error generating profit by invoice report:', err);
+    return res.status(500).json({ error: err.message || 'Error generating profit report' });
+  }
+}
+
+async function getProfitByDate(req, res) {
+  try {
+    const { startDate, endDate, locationId } = req.query;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    // Get all sales within date range and with location filter if provided
+    const locationFilter = locationId && locationId !== 'All locations' 
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+      : {};
+
+    // Aggregate sales to calculate profit by date
+    const dateProfits = await Sale.aggregate([
+      {
+        $match: {
+          saleDate: { $gte: start, $lte: end },
+          isDeleted: false,
+          ...locationFilter
+        }
+      },
+      {
+        $project: {
+          saleDate: {
+            $dateToString: { format: '%Y-%m-%d', date: '$saleDate' }
+          },
+          totalSales: { $ifNull: ['$total', 0] },
+          products: 1
+        }
+      },
+      {
+        $addFields: {
+          totalCost: {
+            $sum: {
+              $map: {
+                input: '$products',
+                as: 'product',
+                in: { 
+                  $multiply: [
+                    { $ifNull: ['$$product.quantity', 0] }, 
+                    { $ifNull: ['$$product.originalUnitCost', 0] }
+                  ] 
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$saleDate',
+          date: { $first: '$saleDate' },
+          totalSales: { $sum: '$totalSales' },
+          totalCost: { $sum: '$totalCost' }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          date: 1,
+          grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+        }
+      },
+      { $sort: { date: -1 } }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: dateProfits
+    });
+  } catch (err) {
+    console.error('Error generating profit by date report:', err);
+    return res.status(500).json({ error: err.message || 'Error generating profit report' });
+  }
+}
+
+async function getProfitByCustomer(req, res) {
+  try {
+    const { startDate, endDate, locationId } = req.query;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    // Get all sales within date range and with location filter if provided
+    const locationFilter = locationId && locationId !== 'All locations' 
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+      : {};
+
+    // Aggregate sales to calculate profit by customer
+    const customerProfits = await Sale.aggregate([
+      {
+        $match: {
+          saleDate: { $gte: start, $lte: end },
+          isDeleted: false,
+          ...locationFilter
+        }
+      },
+      {
+        $lookup: {
+          from: 'contacts',
+          localField: 'customer',
+          foreignField: '_id',
+          as: 'customerData'
+        }
+      },
+      {
+        $unwind: {
+          path: '$customerData',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $addFields: {
+          customerName: {
+            $cond: [
+              { $ifNull: ['$customerData.businessName', false] },
+              { 
+                $concat: [
+                  '$customerData.businessName',
+                  ' ',
+                  { $ifNull: ['$customerData.firstName', ''] },
+                  ' ',
+                  { $ifNull: ['$customerData.lastName', ''] }
+                ]
+              },
+              {
+                $concat: [
+                  { $ifNull: ['$customerData.firstName', ''] },
+                  ' ',
+                  { $ifNull: ['$customerData.lastName', ''] }
+                ]
+              }
+            ]
+          },
+          totalSales: { $ifNull: ['$total', 0] },
+          totalCost: {
+            $sum: {
+              $map: {
+                input: '$products',
+                as: 'product',
+                in: { 
+                  $multiply: [
+                    { $ifNull: ['$$product.quantity', 0] }, 
+                    { $ifNull: ['$$product.originalUnitCost', 0] }
+                  ] 
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$customer',
+          customerName: { $first: '$customerName' },
+          totalSales: { $sum: '$totalSales' },
+          totalCost: { $sum: '$totalCost' }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          customerName: 1,
+          grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+        }
+      },
+      { $sort: { grossProfit: -1 } }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: customerProfits
+    });
+  } catch (err) {
+    console.error('Error generating profit by customer report:', err);
+    return res.status(500).json({ error: err.message || 'Error generating profit report' });
+  }
+}
+
+async function getProfitByDay(req, res) {
+  try {
+    const { startDate, endDate, locationId } = req.query;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    // Get all sales within date range and with location filter if provided
+    const locationFilter = locationId && locationId !== 'All locations' 
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+      : {};
+
+    // Aggregate sales to calculate profit by day of week
+    const dayProfits = await Sale.aggregate([
+      {
+        $match: {
+          saleDate: { $gte: start, $lte: end },
+          isDeleted: false,
+          ...locationFilter
+        }
+      },
+      {
+        $addFields: {
+          dayOfWeek: { $dayOfWeek: '$saleDate' }, // 1 for Sunday, 2 for Monday, ..., 7 for Saturday
+          totalSales: { $ifNull: ['$total', 0] },
+          totalCost: {
+            $sum: {
+              $map: {
+                input: '$products',
+                as: 'product',
+                in: { 
+                  $multiply: [
+                    { $ifNull: ['$$product.quantity', 0] }, 
+                    { $ifNull: ['$$product.originalUnitCost', 0] }
+                  ] 
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$dayOfWeek',
+          totalSales: { $sum: '$totalSales' },
+          totalCost: { $sum: '$totalCost' }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          dayName: {
+            $switch: {
+              branches: [
+                { case: { $eq: ['$_id', 1] }, then: 'Sunday' },
+                { case: { $eq: ['$_id', 2] }, then: 'Monday' },
+                { case: { $eq: ['$_id', 3] }, then: 'Tuesday' },
+                { case: { $eq: ['$_id', 4] }, then: 'Wednesday' },
+                { case: { $eq: ['$_id', 5] }, then: 'Thursday' },
+                { case: { $eq: ['$_id', 6] }, then: 'Friday' },
+                { case: { $eq: ['$_id', 7] }, then: 'Saturday' }
+              ],
+              default: 'Unknown'
+            }
+          },
+          grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
+        }
+      },
+      { $sort: { _id: 1 } } // Sort by day of week
+    ]);
+
+    // Calculate total profit
+    const totalProfit = dayProfits.reduce((sum, day) => sum + day.grossProfit, 0);
+
+    return res.status(200).json({
+      success: true,
+      data: dayProfits,
+      total: totalProfit
+    });
+  } catch (err) {
+    console.error('Error generating profit by day report:', err);
+    return res.status(500).json({ error: err.message || 'Error generating profit report' });
+  }
+}
