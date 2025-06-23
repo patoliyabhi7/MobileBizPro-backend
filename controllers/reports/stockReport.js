@@ -11,18 +11,18 @@ const mongoose = require('mongoose');
 
 exports.getStockReport = async (req, res) => {
   try {
-    const { 
-      locationId, 
-      categoryId, 
+    const {
+      locationId,
+      categoryId,
       subcategoryId,
       brandId,
       unit
     } = req.query;
 
     console.log('Stock Report Query:', req.query);
-    
+
     // Build base product filters
-    let productFilters = { 
+    let productFilters = {
       isDeleted: false
     };
 
@@ -49,14 +49,14 @@ exports.getStockReport = async (req, res) => {
     // Subcategory filter
     if (subcategoryId && subcategoryId !== 'All') {
       // Find all categories with this parent
-      const categories = await Category.find({ 
+      const categories = await Category.find({
         parentCategory: new mongoose.Types.ObjectId(subcategoryId),
         isDeleted: false
       }).select('_id');
 
       const categoryIds = categories.map(cat => cat._id);
       categoryIds.push(new mongoose.Types.ObjectId(subcategoryId));
-      
+
       productFilters.category = { $in: categoryIds };
     }
 
@@ -64,12 +64,12 @@ exports.getStockReport = async (req, res) => {
 
     // Get sales data for calculating units sold - use aggregation for efficiency
     const salesData = await Sale.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           isDeleted: false,
-          ...(locationId && locationId !== 'All' ? 
+          ...(locationId && locationId !== 'All' ?
             { businessLocation: new mongoose.Types.ObjectId(locationId) } : {})
-        } 
+        }
       },
       { $unwind: '$products' },
       {
@@ -79,17 +79,17 @@ exports.getStockReport = async (req, res) => {
         }
       }
     ]);
-    
+
     console.log('Sales data aggregation result:', salesData.length);
 
     // Get sale returns data
     const saleReturnsData = await SaleReturn.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           isDeleted: false,
-          ...(locationId && locationId !== 'All' ? 
+          ...(locationId && locationId !== 'All' ?
             { businessLocation: new mongoose.Types.ObjectId(locationId) } : {})
-        } 
+        }
       },
       { $unwind: '$returnedProducts' },
       {
@@ -99,17 +99,17 @@ exports.getStockReport = async (req, res) => {
         }
       }
     ]);
-    
+
     console.log('Sale returns data aggregation result:', saleReturnsData.length);
-    
+
     // Get purchase returns data
     const purchaseReturnsData = await PurchaseReturn.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           isDeleted: false,
-          ...(locationId && locationId !== 'All' ? 
+          ...(locationId && locationId !== 'All' ?
             { businessLocation: new mongoose.Types.ObjectId(locationId) } : {})
-        } 
+        }
       },
       { $unwind: '$returnedProducts' },
       {
@@ -119,7 +119,7 @@ exports.getStockReport = async (req, res) => {
         }
       }
     ]);
-    
+
     console.log('Purchase returns data aggregation result:', purchaseReturnsData.length);
 
     const soldQuantityByProduct = {};
@@ -128,7 +128,7 @@ exports.getStockReport = async (req, res) => {
         soldQuantityByProduct[item._id.toString()] = item.totalUnitSold || 0;
       }
     });
-    
+
     // Create maps for return data
     const saleReturnsByProduct = {};
     saleReturnsData.forEach(item => {
@@ -136,14 +136,14 @@ exports.getStockReport = async (req, res) => {
         saleReturnsByProduct[item._id.toString()] = item.totalUnitReturned || 0;
       }
     });
-    
+
     const purchaseReturnsByProduct = {};
     purchaseReturnsData.forEach(item => {
       if (item._id) {
         purchaseReturnsByProduct[item._id.toString()] = item.totalUnitReturned || 0;
       }
     });
-    
+
     // Approach 1: First try to get all products and calculate their stock
     const products = await Product.find(productFilters)
       .populate('brand')
@@ -163,7 +163,7 @@ exports.getStockReport = async (req, res) => {
     const stockData = await Stock.aggregate([
       {
         $match: {
-          ...(locationId && locationId !== 'All' ? 
+          ...(locationId && locationId !== 'All' ?
             { businessLocation: new mongoose.Types.ObjectId(locationId) } : {})
         }
       },
@@ -200,9 +200,9 @@ exports.getStockReport = async (req, res) => {
     // Get purchase data to find original purchase prices
     const purchaseData = await Purchase.aggregate([
       {
-        $match: { 
+        $match: {
           isDeleted: false,
-          ...(locationId && locationId !== 'All' ? 
+          ...(locationId && locationId !== 'All' ?
             { businessLocation: new mongoose.Types.ObjectId(locationId) } : {})
         }
       },
@@ -244,36 +244,38 @@ exports.getStockReport = async (req, res) => {
     for (const product of products) {
       const productId = product._id.toString();
       const stockInfo = stockByProduct[productId] || { totalStock: 0, avgUnitCost: 0, variants: [] };
-      
+
       // Get sales returns (items returned by customers)
       const saleReturnsQty = Number(saleReturnsByProduct[productId] || 0);
-      
+
       // Get purchase returns (items returned to suppliers)
       const purchaseReturnsQty = Number(purchaseReturnsByProduct[productId] || 0);
-      
+
       // Calculate total units sold accounting for returns
       const totalSold = Number(soldQuantityByProduct[productId] || 0);
       const effectiveTotalSold = Math.max(0, totalSold - saleReturnsQty);
-      
+
       // Determine quantity from stock data or product data
       let currentStock = stockInfo.totalStock || Number(product.quantity) || 0;
-      
+
       // Calculate values - use multiple sources for purchase price to ensure we have data
       // First check stockInfo, then purchasePriceByProduct, then fallback to product.purchasePrice
-      const purchasePrice = 
-        (stockInfo.avgUnitCost && stockInfo.avgUnitCost > 0) ? stockInfo.avgUnitCost : 
-        (purchasePriceByProduct[productId] && purchasePriceByProduct[productId] > 0) ? purchasePriceByProduct[productId] : 
-        Number(product.purchasePrice) || 0;
-      
-      // Make sure we have a selling price
-      const sellingPrice = Number(product.sellingPrice) || 0;
-      
+      const purchasePrice = (
+        (stockInfo.avgUnitCost > 0 && stockInfo.avgUnitCost) ||
+        (purchasePriceByProduct[productId] > 0 && purchasePriceByProduct[productId]) ||
+        (product.purchasePrice > 0 && product.purchasePrice)
+      ) || 0;
+
+      const sellingPrice = (
+        (product.sellingPrice > 0 && product.sellingPrice)
+      ) || 0;
+
       console.log(`Product ${product.productName}: Purchase Price = ${purchasePrice}, Selling Price = ${sellingPrice}`);
-      
+
       const currentStockValuePurchase = parseFloat((currentStock * purchasePrice).toFixed(2));
       const currentStockValueSale = parseFloat((currentStock * sellingPrice).toFixed(2));
       const potentialProfit = parseFloat((currentStockValueSale - currentStockValuePurchase).toFixed(2));
-      
+
       // Calculate profit margin
       let profitMargin = 0;
       if (currentStockValuePurchase > 0) {
@@ -294,16 +296,16 @@ exports.getStockReport = async (req, res) => {
         for (const variant of stockInfo.variants) {
           // Skip variants with zero quantity
           if (variant.quantity <= 0) continue;
-          
+
           // Calculate variant-specific values
           const variantStock = Number(variant.quantity) || 0;
-          const variantPurchasePrice = (variant.unitCost && variant.unitCost > 0) ? 
+          const variantPurchasePrice = (variant.unitCost && variant.unitCost > 0) ?
             Number(variant.unitCost) : purchasePrice;
-          
+
           const variantStockValuePurchase = parseFloat((variantStock * variantPurchasePrice).toFixed(2));
           const variantStockValueSale = parseFloat((variantStock * sellingPrice).toFixed(2));
           const variantPotentialProfit = parseFloat((variantStockValueSale - variantStockValuePurchase).toFixed(2));
-          
+
           let variantProfitMargin = 0;
           if (variantStockValuePurchase > 0) {
             variantProfitMargin = parseFloat(((variantPotentialProfit / variantStockValuePurchase) * 100).toFixed(2));
@@ -363,28 +365,28 @@ exports.getStockReport = async (req, res) => {
     // If we still don't have any products, modify the product query to get ALL products
     if (formattedStockItems.length === 0) {
       console.log("No products found with current filters, trying to get all products");
-      
+
       try {
         // Get all non-deleted products regardless of other filters
-        const allProducts = await Product.find({ 
+        const allProducts = await Product.find({
           isDeleted: false
         }).populate('brand').populate('category').populate('businessLocation').lean();
-        
+
         console.log(`Found ${allProducts.length} total products in the database`);
-        
+
         for (const product of allProducts) {
           const productId = product._id.toString();
-          
+
           // Get sales returns (items returned by customers)
           const saleReturnsQty = Number(saleReturnsByProduct[productId] || 0);
-          
+
           // Get purchase returns (items returned to suppliers)
           const purchaseReturnsQty = Number(purchaseReturnsByProduct[productId] || 0);
-          
+
           // Calculate total units sold accounting for returns
           const totalSold = Number(soldQuantityByProduct[productId] || 0);
           const effectiveTotalSold = Math.max(0, totalSold - saleReturnsQty);
-          
+
           // Calculate values for display
           const stockInfo = stockByProduct[productId] || { totalStock: 0, avgUnitCost: 0, variants: [] };
           const currentStock = stockInfo.totalStock || Number(product.quantity) || 0;
@@ -393,12 +395,12 @@ exports.getStockReport = async (req, res) => {
           const currentStockValuePurchase = parseFloat((currentStock * purchasePrice).toFixed(2));
           const currentStockValueSale = parseFloat((currentStock * sellingPrice).toFixed(2));
           const potentialProfit = parseFloat((currentStockValueSale - currentStockValuePurchase).toFixed(2));
-          
+
           let profitMargin = 0;
           if (currentStockValuePurchase > 0) {
             profitMargin = parseFloat(((potentialProfit / currentStockValuePurchase) * 100).toFixed(2));
           }
-          
+
           formattedStockItems.push({
             sku: product.sku || '',
             product: product.productName || 'Unknown Product',
@@ -440,11 +442,11 @@ exports.getStockReport = async (req, res) => {
     });
 
     console.log(`Returning ${formattedStockItems.length} stock items in the report`);
-    
+
     if (skippedNoProduct > 0) {
       console.log(`DEBUG: Skipped items - No Product: ${skippedNoProduct}`);
     }
-    
+
     // Response with stock items and summary data
     res.status(200).json({
       summary: {
