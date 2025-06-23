@@ -171,7 +171,7 @@ exports.getStockReport = async (req, res) => {
         $group: {
           _id: '$product',
           totalStock: { $sum: '$quantity' },
-          avgUnitCost: { $avg: '$unitCost' },
+          avgUnitCost: { $avg: { $cond: [{ $gt: ['$unitCost', 0] }, '$unitCost', null] } }, // Only average non-zero prices
           variants: {
             $push: {
               _id: '$_id',
@@ -194,6 +194,32 @@ exports.getStockReport = async (req, res) => {
     stockData.forEach(s => {
       if (s._id) {
         stockByProduct[s._id.toString()] = s;
+      }
+    });
+
+    // Get purchase data to find original purchase prices
+    const purchaseData = await Purchase.aggregate([
+      {
+        $match: { 
+          isDeleted: false,
+          ...(locationId && locationId !== 'All' ? 
+            { businessLocation: new mongoose.Types.ObjectId(locationId) } : {})
+        }
+      },
+      { $unwind: '$products' },
+      {
+        $group: {
+          _id: '$products.product',
+          avgPurchasePrice: { $avg: '$products.unitCost' }
+        }
+      }
+    ]);
+
+    // Create map for purchase data
+    const purchasePriceByProduct = {};
+    purchaseData.forEach(p => {
+      if (p._id) {
+        purchasePriceByProduct[p._id.toString()] = p.avgPurchasePrice || 0;
       }
     });
 
@@ -232,9 +258,18 @@ exports.getStockReport = async (req, res) => {
       // Determine quantity from stock data or product data
       let currentStock = stockInfo.totalStock || Number(product.quantity) || 0;
       
-      // Calculate values - even for zero stock products
-      const purchasePrice = stockInfo.avgUnitCost || Number(product.purchasePrice) || 0;
+      // Calculate values - use multiple sources for purchase price to ensure we have data
+      // First check stockInfo, then purchasePriceByProduct, then fallback to product.purchasePrice
+      const purchasePrice = 
+        (stockInfo.avgUnitCost && stockInfo.avgUnitCost > 0) ? stockInfo.avgUnitCost : 
+        (purchasePriceByProduct[productId] && purchasePriceByProduct[productId] > 0) ? purchasePriceByProduct[productId] : 
+        Number(product.purchasePrice) || 0;
+      
+      // Make sure we have a selling price
       const sellingPrice = Number(product.sellingPrice) || 0;
+      
+      console.log(`Product ${product.productName}: Purchase Price = ${purchasePrice}, Selling Price = ${sellingPrice}`);
+      
       const currentStockValuePurchase = parseFloat((currentStock * purchasePrice).toFixed(2));
       const currentStockValueSale = parseFloat((currentStock * sellingPrice).toFixed(2));
       const potentialProfit = parseFloat((currentStockValueSale - currentStockValuePurchase).toFixed(2));
@@ -245,23 +280,26 @@ exports.getStockReport = async (req, res) => {
         profitMargin = parseFloat(((potentialProfit / currentStockValuePurchase) * 100).toFixed(2));
       }
 
-      // Add to totals - but only for products with stock
-      if (currentStock > 0) {
-        totals.currentStock += currentStock;
-        totals.currentStockValuePurchase += currentStockValuePurchase;
-        totals.currentStockValueSale += currentStockValueSale;
-        totals.potentialProfit += potentialProfit;
-      }
+      // Add to totals
+      totals.currentStock += currentStock;
+      totals.currentStockValuePurchase += currentStockValuePurchase;
+      totals.currentStockValueSale += currentStockValueSale;
+      totals.potentialProfit += potentialProfit;
       totals.totalUnitSold += effectiveTotalSold;
       totals.totalUnitReturned += saleReturnsQty;
       totals.totalPurchaseReturned += purchaseReturnsQty;
 
       // If there are variants, add each as a separate item
-      if (stockInfo.variants && stockInfo.variants.length > 0) {
+      if (stockInfo.variants && stockInfo.variants.length > 0 && stockInfo.variants.some(v => v.quantity > 0)) {
         for (const variant of stockInfo.variants) {
+          // Skip variants with zero quantity
+          if (variant.quantity <= 0) continue;
+          
           // Calculate variant-specific values
           const variantStock = Number(variant.quantity) || 0;
-          const variantPurchasePrice = Number(variant.unitCost) || purchasePrice;
+          const variantPurchasePrice = (variant.unitCost && variant.unitCost > 0) ? 
+            Number(variant.unitCost) : purchasePrice;
+          
           const variantStockValuePurchase = parseFloat((variantStock * variantPurchasePrice).toFixed(2));
           const variantStockValueSale = parseFloat((variantStock * sellingPrice).toFixed(2));
           const variantPotentialProfit = parseFloat((variantStockValueSale - variantStockValuePurchase).toFixed(2));
@@ -287,7 +325,7 @@ exports.getStockReport = async (req, res) => {
             currentStockValueSale: variantStockValueSale,
             potentialProfit: variantPotentialProfit,
             profitMargin: variantProfitMargin,
-            totalUnitSold: effectiveTotalSold, // We don't have variant-specific sales data
+            totalUnitSold: effectiveTotalSold,
             totalUnitReturned: saleReturnsQty,
             totalPurchaseReturned: purchaseReturnsQty,
             totalUnitTransferred: 0,
@@ -295,28 +333,30 @@ exports.getStockReport = async (req, res) => {
           });
         }
       } else {
-        // Add product as a single item - ALWAYS add the product, even with zero stock
-        formattedStockItems.push({
-          sku: product.sku || '',
-          product: product.productName || 'Unknown Product',
-          variation: '',
-          imeiNo: '',
-          serialNo: '',
-          category: product.category ? product.category.name : '',
-          location: product.businessLocation ? product.businessLocation.name : '',
-          unitPurchasePrice: parseFloat(purchasePrice.toFixed(2)),
-          unitSellingPrice: parseFloat(sellingPrice.toFixed(2)),
-          currentStock,
-          currentStockValuePurchase,
-          currentStockValueSale,
-          potentialProfit,
-          profitMargin,
-          totalUnitSold: effectiveTotalSold,
-          totalUnitReturned: saleReturnsQty,
-          totalPurchaseReturned: purchaseReturnsQty,
-          totalUnitTransferred: 0,
-          totalUnitAdjusted: 0
-        });
+        // Only add products with stock or sales
+        if (currentStock > 0 || effectiveTotalSold > 0 || saleReturnsQty > 0 || purchaseReturnsQty > 0) {
+          formattedStockItems.push({
+            sku: product.sku || '',
+            product: product.productName || 'Unknown Product',
+            variation: '',
+            imeiNo: '',
+            serialNo: '',
+            category: product.category ? product.category.name : '',
+            location: product.businessLocation ? product.businessLocation.name : '',
+            unitPurchasePrice: parseFloat(purchasePrice.toFixed(2)),
+            unitSellingPrice: parseFloat(sellingPrice.toFixed(2)),
+            currentStock,
+            currentStockValuePurchase,
+            currentStockValueSale,
+            potentialProfit,
+            profitMargin,
+            totalUnitSold: effectiveTotalSold,
+            totalUnitReturned: saleReturnsQty,
+            totalPurchaseReturned: purchaseReturnsQty,
+            totalUnitTransferred: 0,
+            totalUnitAdjusted: 0
+          });
+        }
       }
     }
 
