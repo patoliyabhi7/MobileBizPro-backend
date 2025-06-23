@@ -5,6 +5,8 @@ const BusinessLocation = require('../../models/businessLocationModel');
 const Brand = require('../../models/brandModel');
 const Sale = require('../../models/saleModel');
 const Purchase = require('../../models/purchaseModel');
+const SaleReturn = require('../../models/saleReturnModel');
+const PurchaseReturn = require('../../models/purchaseReturnModel');
 const mongoose = require('mongoose');
 
 exports.getStockReport = async (req, res) => {
@@ -80,10 +82,65 @@ exports.getStockReport = async (req, res) => {
     
     console.log('Sales data aggregation result:', salesData.length);
 
+    // Get sale returns data
+    const saleReturnsData = await SaleReturn.aggregate([
+      { 
+        $match: { 
+          isDeleted: false,
+          ...(locationId && locationId !== 'All' ? 
+            { businessLocation: new mongoose.Types.ObjectId(locationId) } : {})
+        } 
+      },
+      { $unwind: '$returnedProducts' },
+      {
+        $group: {
+          _id: '$returnedProducts.product',
+          totalUnitReturned: { $sum: '$returnedProducts.quantity' }
+        }
+      }
+    ]);
+    
+    console.log('Sale returns data aggregation result:', saleReturnsData.length);
+    
+    // Get purchase returns data
+    const purchaseReturnsData = await PurchaseReturn.aggregate([
+      { 
+        $match: { 
+          isDeleted: false,
+          ...(locationId && locationId !== 'All' ? 
+            { businessLocation: new mongoose.Types.ObjectId(locationId) } : {})
+        } 
+      },
+      { $unwind: '$returnedProducts' },
+      {
+        $group: {
+          _id: '$returnedProducts.product',
+          totalUnitReturned: { $sum: '$returnedProducts.quantity' }
+        }
+      }
+    ]);
+    
+    console.log('Purchase returns data aggregation result:', purchaseReturnsData.length);
+
     const soldQuantityByProduct = {};
     salesData.forEach(item => {
       if (item._id) {
         soldQuantityByProduct[item._id.toString()] = item.totalUnitSold || 0;
+      }
+    });
+    
+    // Create maps for return data
+    const saleReturnsByProduct = {};
+    saleReturnsData.forEach(item => {
+      if (item._id) {
+        saleReturnsByProduct[item._id.toString()] = item.totalUnitReturned || 0;
+      }
+    });
+    
+    const purchaseReturnsByProduct = {};
+    purchaseReturnsData.forEach(item => {
+      if (item._id) {
+        purchaseReturnsByProduct[item._id.toString()] = item.totalUnitReturned || 0;
       }
     });
     
@@ -106,7 +163,6 @@ exports.getStockReport = async (req, res) => {
     const stockData = await Stock.aggregate([
       {
         $match: {
-          quantity: { $gt: 0 },
           ...(locationId && locationId !== 'All' ? 
             { businessLocation: new mongoose.Types.ObjectId(locationId) } : {})
         }
@@ -150,7 +206,9 @@ exports.getStockReport = async (req, res) => {
       potentialProfit: 0,
       totalUnitSold: 0,
       totalUnitTransferred: 0,
-      totalUnitAdjusted: 0
+      totalUnitAdjusted: 0,
+      totalUnitReturned: 0,
+      totalPurchaseReturned: 0
     };
 
     // Debug variables to count items skipped
@@ -161,8 +219,18 @@ exports.getStockReport = async (req, res) => {
       const productId = product._id.toString();
       const stockInfo = stockByProduct[productId] || { totalStock: 0, avgUnitCost: 0, variants: [] };
       
+      // Get sales returns (items returned by customers)
+      const saleReturnsQty = Number(saleReturnsByProduct[productId] || 0);
+      
+      // Get purchase returns (items returned to suppliers)
+      const purchaseReturnsQty = Number(purchaseReturnsByProduct[productId] || 0);
+      
+      // Calculate total units sold accounting for returns
+      const totalSold = Number(soldQuantityByProduct[productId] || 0);
+      const effectiveTotalSold = Math.max(0, totalSold - saleReturnsQty);
+      
       // Determine quantity from stock data or product data
-      const currentStock = stockInfo.totalStock || Number(product.quantity) || 0;
+      let currentStock = stockInfo.totalStock || Number(product.quantity) || 0;
       
       // Calculate values - even for zero stock products
       const purchasePrice = stockInfo.avgUnitCost || Number(product.purchasePrice) || 0;
@@ -177,9 +245,6 @@ exports.getStockReport = async (req, res) => {
         profitMargin = parseFloat(((potentialProfit / currentStockValuePurchase) * 100).toFixed(2));
       }
 
-      // Get sales data
-      const totalUnitSold = Number(soldQuantityByProduct[productId] || 0);
-      
       // Add to totals - but only for products with stock
       if (currentStock > 0) {
         totals.currentStock += currentStock;
@@ -187,7 +252,9 @@ exports.getStockReport = async (req, res) => {
         totals.currentStockValueSale += currentStockValueSale;
         totals.potentialProfit += potentialProfit;
       }
-      totals.totalUnitSold += totalUnitSold;
+      totals.totalUnitSold += effectiveTotalSold;
+      totals.totalUnitReturned += saleReturnsQty;
+      totals.totalPurchaseReturned += purchaseReturnsQty;
 
       // If there are variants, add each as a separate item
       if (stockInfo.variants && stockInfo.variants.length > 0) {
@@ -220,7 +287,9 @@ exports.getStockReport = async (req, res) => {
             currentStockValueSale: variantStockValueSale,
             potentialProfit: variantPotentialProfit,
             profitMargin: variantProfitMargin,
-            totalUnitSold, // We don't have variant-specific sales data
+            totalUnitSold: effectiveTotalSold, // We don't have variant-specific sales data
+            totalUnitReturned: saleReturnsQty,
+            totalPurchaseReturned: purchaseReturnsQty,
             totalUnitTransferred: 0,
             totalUnitAdjusted: 0
           });
@@ -242,7 +311,9 @@ exports.getStockReport = async (req, res) => {
           currentStockValueSale,
           potentialProfit,
           profitMargin,
-          totalUnitSold,
+          totalUnitSold: effectiveTotalSold,
+          totalUnitReturned: saleReturnsQty,
+          totalPurchaseReturned: purchaseReturnsQty,
           totalUnitTransferred: 0,
           totalUnitAdjusted: 0
         });
@@ -264,9 +335,20 @@ exports.getStockReport = async (req, res) => {
         for (const product of allProducts) {
           const productId = product._id.toString();
           
+          // Get sales returns (items returned by customers)
+          const saleReturnsQty = Number(saleReturnsByProduct[productId] || 0);
+          
+          // Get purchase returns (items returned to suppliers)
+          const purchaseReturnsQty = Number(purchaseReturnsByProduct[productId] || 0);
+          
+          // Calculate total units sold accounting for returns
+          const totalSold = Number(soldQuantityByProduct[productId] || 0);
+          const effectiveTotalSold = Math.max(0, totalSold - saleReturnsQty);
+          
           // Calculate values for display
-          const currentStock = Number(product.quantity) || 0;
-          const purchasePrice = Number(product.purchasePrice) || 0;
+          const stockInfo = stockByProduct[productId] || { totalStock: 0, avgUnitCost: 0, variants: [] };
+          const currentStock = stockInfo.totalStock || Number(product.quantity) || 0;
+          const purchasePrice = stockInfo.avgUnitCost || Number(product.purchasePrice) || 0;
           const sellingPrice = Number(product.sellingPrice) || 0;
           const currentStockValuePurchase = parseFloat((currentStock * purchasePrice).toFixed(2));
           const currentStockValueSale = parseFloat((currentStock * sellingPrice).toFixed(2));
@@ -276,8 +358,6 @@ exports.getStockReport = async (req, res) => {
           if (currentStockValuePurchase > 0) {
             profitMargin = parseFloat(((potentialProfit / currentStockValuePurchase) * 100).toFixed(2));
           }
-          
-          const totalUnitSold = Number(soldQuantityByProduct[productId] || 0);
           
           formattedStockItems.push({
             sku: product.sku || '',
@@ -294,7 +374,9 @@ exports.getStockReport = async (req, res) => {
             currentStockValueSale,
             potentialProfit,
             profitMargin,
-            totalUnitSold,
+            totalUnitSold: effectiveTotalSold,
+            totalUnitReturned: saleReturnsQty,
+            totalPurchaseReturned: purchaseReturnsQty,
             totalUnitTransferred: 0,
             totalUnitAdjusted: 0
           });
@@ -340,4 +422,3 @@ exports.getStockReport = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-              
