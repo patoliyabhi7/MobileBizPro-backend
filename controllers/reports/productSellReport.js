@@ -57,6 +57,12 @@ exports.getProductSellReport = async (req, res) => {
           { path: 'category' }
         ]
       })
+      .populate({
+        path: 'products.purchaseRef',
+        populate: {
+          path: 'supplier'
+        }
+      })
       .populate('customer')
       .populate('businessLocation')
       .populate('payments.method')
@@ -129,7 +135,7 @@ function handleDetailedView(sales, res, { productId, categoryId, brandId }) {
       const productSale = {
         product: productItem.product.productName,
         sku: productItem.product.sku,
-        customerName: sale.customer ? sale.customer.businessName || `${sale.customer.firstName || ''} ${sale.customer.lastName || ''}`.trim() : 'Unknown Customer',
+        customerName: sale.customer ? sale.customer.businessName? sale.customer.businessName + ' ' + sale.customer.firstName + ' ' + sale.customer.lastName : `${sale.customer.firstName || ''} ${sale.customer.lastName || ''}`.trim() : 'Unknown Customer',
         contactId: sale.customer?._id || '',
         invoiceNo: sale.invoiceNo,
         date: sale.saleDate,
@@ -169,15 +175,35 @@ function handleDetailedWithPurchaseView(sales, res, { productId, categoryId, bra
       if (categoryId && categoryId !== 'All' && (!productItem.product.category || productItem.product.category._id.toString() !== categoryId)) continue;
       if (brandId && brandId !== 'All' && (!productItem.product.brand || productItem.product.brand._id.toString() !== brandId)) continue;
       
+      // Get purchase reference and supplier information
+      const purchaseRef = productItem.purchaseRef;
+      let purchaseRefNo = 'N/A';
+      let supplierName = 'N/A';
+      
+      if (purchaseRef) {
+        purchaseRefNo = purchaseRef.referenceNo || 'N/A';
+        
+        if (purchaseRef.supplier) {
+          if (purchaseRef.supplier.businessName) {
+            supplierName = purchaseRef.supplier.businessName;
+            if (purchaseRef.supplier.firstName || purchaseRef.supplier.lastName) {
+              supplierName += ' ' + `${purchaseRef.supplier.firstName || ''} ${purchaseRef.supplier.lastName || ''}`.trim();
+            }
+          } else {
+            supplierName = `${purchaseRef.supplier.firstName || ''} ${purchaseRef.supplier.lastName || ''}`.trim() || 'Unknown Supplier';
+          }
+        }
+      }
+      
       // Create the product sale record with purchase info
       const productSale = {
         product: productItem.product.productName,
         sku: productItem.product.sku,
-        customerName: sale.customer ? sale.customer.businessName || `${sale.customer.firstName || ''} ${sale.customer.lastName || ''}`.trim() : 'Unknown Customer',
+        customerName: sale.customer ? sale.customer.businessName ? sale.customer.businessName + ' ' + sale.customer.firstName + ' ' + sale.customer.lastName : `${sale.customer.firstName || ''} ${sale.customer.lastName || ''}`.trim() : 'Unknown Customer',
         invoiceNo: sale.invoiceNo,
         date: sale.saleDate,
-        purchaseRefNo: productItem.product.purchaseRefNo || 'PUR' + Math.floor(Math.random() * 10000000), // Mock data if not available
-        supplierName: productItem.product.supplierName || 'Sample Supplier', // Mock data if not available
+        purchaseRefNo: purchaseRefNo,
+        supplierName: supplierName,
         quantity: productItem.quantity
       };
       
@@ -209,10 +235,10 @@ async function handleGroupedByProductView(sales, res, { productId, categoryId, b
       if (categoryId && categoryId !== 'All' && (!productItem.product.category || productItem.product.category._id.toString() !== categoryId)) continue;
       if (brandId && brandId !== 'All' && (!productItem.product.brand || productItem.product.brand._id.toString() !== brandId)) continue;
       
-      const productId = productItem.product._id.toString();
+      const itemProductId = productItem.product._id.toString();
       
-      if (!productMap.has(productId)) {
-        productMap.set(productId, {
+      if (!productMap.has(itemProductId)) {
+        productMap.set(itemProductId, {
           product: productItem.product.productName,
           sku: productItem.product.sku,
           date: sale.saleDate, // Just using the most recent sale date
@@ -222,7 +248,7 @@ async function handleGroupedByProductView(sales, res, { productId, categoryId, b
         });
       }
       
-      const record = productMap.get(productId);
+      const record = productMap.get(itemProductId);
       record.totalUnitSold += productItem.quantity || 0;
       record.total += productItem.lineTotal || 0;
       
