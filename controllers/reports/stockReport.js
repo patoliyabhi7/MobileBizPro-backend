@@ -248,47 +248,47 @@ exports.getStockReport = async (req, res) => {
     const calculateClosingStock = async () => {
       try {
         console.log('Calculating closing stock value');
-        
+
         // Create a filter to get all stock items with the location filter
         // Don't filter by isDeleted as Stock model may not have this field
         const stockFilter = {
-          ...(locationId && locationId !== 'All' ? 
+          ...(locationId && locationId !== 'All' ?
             { businessLocation: new mongoose.Types.ObjectId(locationId) } : {}),
           quantity: { $gt: 0 } // Only include items with stock
         };
-        
+
         console.log('Stock filter:', JSON.stringify(stockFilter, null, 2));
-        
+
         // Get all stock items with the filter
         const stocks = await Stock.find(stockFilter).populate('product');
-        
+
         console.log(`Found ${stocks.length} stock items for closing stock calculation`);
-        
+
         let purchaseValue = 0;
         let saleValue = 0;
-        
+
         // Create a map to store stock values by product for individual item calculations
         const stockValuesByProduct = {};
-        
+
         // Calculate stock values based on the quantity field in stock model
         for (const stock of stocks) {
           if (stock.product) {
             const stockQty = stock.quantity || 0;
             const unitCost = stock.unitCost || 0;
             const sellingPrice = stock.product.sellingPrice || 0;
-            
+
             if (stockQty > 0) {
               purchaseValue += stockQty * unitCost;
               saleValue += stockQty * sellingPrice;
-              
+
               // Store the stock values by product for individual item calculations
               const productId = stock.product._id.toString();
               if (!stockValuesByProduct[productId]) {
-                stockValuesByProduct[productId] = { 
-                  purchaseValue: 0, 
-                  saleValue: 0, 
-                  quantity: 0, 
-                  avgUnitCost: 0, 
+                stockValuesByProduct[productId] = {
+                  purchaseValue: 0,
+                  saleValue: 0,
+                  quantity: 0,
+                  avgUnitCost: 0,
                   productName: stock.product.productName || '',
                   sku: stock.product.sku || '',
                   sellingPrice: sellingPrice
@@ -297,18 +297,18 @@ exports.getStockReport = async (req, res) => {
               stockValuesByProduct[productId].purchaseValue += stockQty * unitCost;
               stockValuesByProduct[productId].saleValue += stockQty * sellingPrice;
               stockValuesByProduct[productId].quantity += stockQty;
-              
+
               // Update average unit cost after adding new values
               if (stockValuesByProduct[productId].quantity > 0) {
-                stockValuesByProduct[productId].avgUnitCost = 
+                stockValuesByProduct[productId].avgUnitCost =
                   stockValuesByProduct[productId].purchaseValue / stockValuesByProduct[productId].quantity;
               }
-              
+
               console.log(`Stock item: Product=${stock.product.productName}, Qty=${stockQty}, UnitCost=${unitCost}, SellingPrice=${sellingPrice}`);
             }
           }
         }
-        
+
         console.log(`Closing stock calculated: Purchase value: ${purchaseValue}, Sale value: ${saleValue}`);
         return { purchaseValue, saleValue, stockValuesByProduct };
       } catch (error) {
@@ -319,7 +319,7 @@ exports.getStockReport = async (req, res) => {
 
     // Get accurate closing stock values
     const closingStock = await calculateClosingStock();
-    
+
     // Debug variables to count items skipped
     let skippedNoProduct = 0;
 
@@ -339,17 +339,17 @@ exports.getStockReport = async (req, res) => {
       const effectiveTotalSold = Math.max(0, totalSold - saleReturnsQty);
 
       // Get stock values directly from closing stock calculation for consistency
-      const productStockValues = closingStock.stockValuesByProduct[productId] || { 
-        purchaseValue: 0, 
-        saleValue: 0, 
+      const productStockValues = closingStock.stockValuesByProduct[productId] || {
+        purchaseValue: 0,
+        saleValue: 0,
         quantity: 0,
         avgUnitCost: 0,
-        sellingPrice: 0 
+        sellingPrice: 0
       };
 
       // Determine quantity from stock calculation first, then stock data, then product data
-      let currentStock = productStockValues.quantity > 0 
-        ? productStockValues.quantity 
+      let currentStock = productStockValues.quantity > 0
+        ? productStockValues.quantity
         : (stockInfo.totalStock || Number(product.quantity) || 0);
 
       // Calculate purchase price using multiple sources for accuracy
@@ -357,7 +357,7 @@ exports.getStockReport = async (req, res) => {
       // First check stock calculation
       if (productStockValues.quantity > 0 && productStockValues.avgUnitCost > 0) {
         purchasePrice = productStockValues.avgUnitCost;
-      } 
+      }
       // Then check stock aggregation 
       else if (stockInfo.avgUnitCost && stockInfo.avgUnitCost > 0) {
         purchasePrice = stockInfo.avgUnitCost;
@@ -396,7 +396,7 @@ exports.getStockReport = async (req, res) => {
         currentStockValuePurchase = 0;
         currentStockValueSale = 0;
       }
-      
+
       const potentialProfit = parseFloat((currentStockValueSale - currentStockValuePurchase).toFixed(2));
 
       // Calculate profit margin
@@ -436,6 +436,7 @@ exports.getStockReport = async (req, res) => {
 
           // Add variant item
           formattedStockItems.push({
+            productId: product._id,
             sku: product.sku || '',
             product: product.productName || 'Unknown Product',
             variation: variant.color ? `${variant.color} ${variant.storage || ''}` : '',
@@ -461,6 +462,7 @@ exports.getStockReport = async (req, res) => {
         // Only add products with stock or sales
         if (currentStock > 0 || effectiveTotalSold > 0 || saleReturnsQty > 0 || purchaseReturnsQty > 0) {
           formattedStockItems.push({
+            productId: product._id,
             sku: product.sku || '',
             product: product.productName || 'Unknown Product',
             variation: '',
@@ -512,27 +514,27 @@ exports.getStockReport = async (req, res) => {
 
           // Calculate values for display
           const stockInfo = stockByProduct[productId] || { totalStock: 0, avgUnitCost: 0, totalPurchaseValue: 0, variants: [] };
-          
+
           // Get stock values directly from closing stock calculation for consistency
-          const productStockValues = closingStock.stockValuesByProduct[productId] || { 
-            purchaseValue: 0, 
-            saleValue: 0, 
+          const productStockValues = closingStock.stockValuesByProduct[productId] || {
+            purchaseValue: 0,
+            saleValue: 0,
             quantity: 0,
             avgUnitCost: 0,
-            sellingPrice: 0 
+            sellingPrice: 0
           };
-          
+
           // Determine quantity from stock calculation first, then stock data, then product data
-          const currentStock = productStockValues.quantity > 0 
-            ? productStockValues.quantity 
+          const currentStock = productStockValues.quantity > 0
+            ? productStockValues.quantity
             : (stockInfo.totalStock || Number(product.quantity) || 0);
-          
+
           // Calculate purchase price using multiple sources for accuracy
           let purchasePrice = 0;
           // First check stock calculation
           if (productStockValues.quantity > 0 && productStockValues.avgUnitCost > 0) {
             purchasePrice = productStockValues.avgUnitCost;
-          } 
+          }
           // Then check stock aggregation 
           else if (stockInfo.avgUnitCost && stockInfo.avgUnitCost > 0) {
             purchasePrice = stockInfo.avgUnitCost;
@@ -545,7 +547,7 @@ exports.getStockReport = async (req, res) => {
           else if (product.purchasePrice && product.purchasePrice > 0) {
             purchasePrice = product.purchasePrice;
           }
-          
+
           // Get selling price from stock calculation first, then product data
           let sellingPrice = 0;
           if (productStockValues.sellingPrice > 0) {
@@ -553,7 +555,7 @@ exports.getStockReport = async (req, res) => {
           } else {
             sellingPrice = product.sellingPrice > 0 ? product.sellingPrice : 0;
           }
-          
+
           // Always prefer stock calculation values for accuracy
           let currentStockValuePurchase, currentStockValueSale;
           if (productStockValues.quantity > 0) {
@@ -569,7 +571,7 @@ exports.getStockReport = async (req, res) => {
             currentStockValuePurchase = 0;
             currentStockValueSale = 0;
           }
-          
+
           const potentialProfit = parseFloat((currentStockValueSale - currentStockValuePurchase).toFixed(2));
 
           let profitMargin = 0;
@@ -578,6 +580,7 @@ exports.getStockReport = async (req, res) => {
           }
 
           formattedStockItems.push({
+            productId: product._id,
             sku: product.sku || '',
             product: product.productName || 'Unknown Product',
             variation: '',
@@ -606,11 +609,11 @@ exports.getStockReport = async (req, res) => {
 
     // Calculate overall profit details for summary
     const overallPotentialProfit = parseFloat((closingStock.saleValue - closingStock.purchaseValue).toFixed(2));
-    const overallProfitMargin = closingStock.purchaseValue > 0 ? 
+    const overallProfitMargin = closingStock.purchaseValue > 0 ?
       parseFloat((((closingStock.saleValue - closingStock.purchaseValue) / closingStock.purchaseValue) * 100).toFixed(2)) : 0;
-      
+
     console.log(`Overall profit margin: ${overallProfitMargin}%, Potential profit: ${overallPotentialProfit}`);
-    
+
     // Replace the calculated summary with accurate values from the direct calculation
     res.status(200).json({
       summary: {
