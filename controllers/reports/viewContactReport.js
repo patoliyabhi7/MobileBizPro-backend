@@ -80,6 +80,7 @@ async function getLedgerTab(contact, start, end, locationFilter, format, res) {
     })
     .populate('businessLocation', 'name')
     .populate('supplier', 'firstName lastName businessName')
+    .populate('payments.method', 'name')
     .sort({ purchaseDate: 1 })
     .lean();
 
@@ -91,6 +92,7 @@ async function getLedgerTab(contact, start, end, locationFilter, format, res) {
       ...locationFilter
     })
     .populate('businessLocation', 'name')
+    .populate('returnPayments.method', 'name')
     .sort({ returnDate: 1 })
     .lean();
 
@@ -144,7 +146,7 @@ async function getLedgerTab(contact, start, end, locationFilter, format, res) {
         debit: 0,
         credit: purchase.total,
         balance: 0, // Will be calculated later
-        paymentMethod: '',
+        paymentMethod: purchase.payments && purchase.payments.length > 0 ? purchase.payments[0].method.name : '',
         others: purchase.additionalNotes || ''
       });
       
@@ -160,7 +162,7 @@ async function getLedgerTab(contact, start, end, locationFilter, format, res) {
             debit: payment.amount,
             credit: 0,
             balance: 0, // Will be calculated later
-            paymentMethod: 'Bank Transfer', // This would come from payment.method in real data
+            paymentMethod: payment.method ? payment.method.name : 'Bank Transfer', // Use actual payment method name if available
             others: payment.note || ''
           });
         });
@@ -178,9 +180,28 @@ async function getLedgerTab(contact, start, end, locationFilter, format, res) {
         debit: purchaseReturn.total,
         credit: 0,
         balance: 0, // Will be calculated later
-        paymentMethod: '',
+        paymentMethod: purchaseReturn.returnPayments && purchaseReturn.returnPayments.length > 0 ? 
+          (purchaseReturn.returnPayments[0].method ? purchaseReturn.returnPayments[0].method.name : '') : '',
         others: ''
       });
+      
+      // Add return payments if any
+      if (purchaseReturn.returnPayments && purchaseReturn.returnPayments.length > 0) {
+        purchaseReturn.returnPayments.forEach(payment => {
+          transactions.push({
+            date: payment.paidOn,
+            referenceNo: `RETPYMNT${payment.paymentRefNo || ''}`,
+            type: 'Return Payment',
+            location: purchaseReturn.businessLocation ? purchaseReturn.businessLocation.name : '',
+            paymentStatus: '',
+            debit: 0,
+            credit: payment.amount,
+            balance: 0, // Will be calculated later
+            paymentMethod: payment.method ? payment.method.name : '',
+            others: payment.note || ''
+          });
+        });
+      }
     });
     
     // Sort transactions by date
@@ -255,13 +276,27 @@ async function getPurchasesTab(contact, start, end, locationFilter, res) {
       ...locationFilter
     })
     .populate('businessLocation', 'name')
-    .populate('addedBy', 'firstName lastName')
+    .populate('addedBy', 'name')
     .sort({ purchaseDate: -1 }) // Newest first
+    .lean();
+    
+    // Fetch purchase returns for this contact
+    const purchaseReturns = await PurchaseReturn.find({
+      supplier: new mongoose.Types.ObjectId(contact._id),
+      returnDate: { $gte: start, $lte: end },
+      isDeleted: { $ne: true },
+      ...locationFilter
+    })
     .lean();
     
     let total = 0;
     let purchaseDue = 0;
     let purchaseReturn = 0;
+    
+    // Calculate purchase return total
+    purchaseReturns.forEach(returnItem => {
+      purchaseReturn += returnItem.totalReturnAmount || 0;
+    });
     
     const formattedPurchases = purchases.map(purchase => {
       total += purchase.total || 0;
@@ -275,7 +310,7 @@ async function getPurchasesTab(contact, start, end, locationFilter, res) {
         paymentStatus: purchase.paymentStatus || 'due',
         grandTotal: purchase.total,
         paymentDue: purchase.paymentDue,
-        addedBy: purchase.addedBy ? `${purchase.addedBy.firstName} ${purchase.addedBy.lastName}` : '',
+        addedBy: purchase.addedBy.name || '',
         supplier: contact.businessName || `${contact.firstName} ${contact.lastName}`,
         location: purchase.businessLocation?.name || ''
       };
@@ -405,31 +440,57 @@ async function getSalesTab(contact, start, end, locationFilter, paymentStatus, r
       ...statusFilter
     })
     .populate('businessLocation', 'name')
-    .populate('addedBy', 'firstName lastName')
+    .populate('addedBy', 'name')
+    .populate('payments.method', 'name')
     .sort({ saleDate: -1 })
     .lean();
     
+    // Fetch sale returns for this customer
+    const saleReturns = await SaleReturn.find({
+      originalSale: { $in: sales.map(sale => sale._id) },
+      returnDate: { $gte: start, $lte: end },
+      isDeleted: { $ne: true }
+    })
+    .lean();
+    
+    // Create a map of sale returns by sale ID
+    const saleReturnMap = new Map();
+    saleReturns.forEach(returnItem => {
+      if (returnItem.originalSale) {
+        const saleId = returnItem.originalSale.toString();
+        if (!saleReturnMap.has(saleId)) {
+          saleReturnMap.set(saleId, 0);
+        }
+        saleReturnMap.set(saleId, saleReturnMap.get(saleId) + returnItem.totalReturnAmount);
+      }
+    });
+    
     // Format sales data
-    const formattedSales = sales.map(sale => ({
-      action: "",
-      date: new Date(sale.saleDate).toLocaleString(),
-      invoiceNo: sale.invoiceNo,
-      customer: contact.businessName || `${contact.firstName} ${contact.lastName}`,
-      contactNumber: contact.mobile || '',
-      location: sale.businessLocation?.name || '',
-      paymentStatus: sale.paymentStatus || 'due',
-      paymentMethod: sale.payments && sale.payments.length > 0 ? sale.payments[0].method : '',
-      totalAmount: sale.total,
-      totalPaid: sale.total - (sale.paymentDue || 0),
-      sellDue: sale.paymentDue || 0,
-      sellReturn: 0,
-      shippingStatus: sale.shippingStatus || '',
-      totalItems: sale.totalItems || 0,
-      addedBy: sale.addedBy ? `${sale.addedBy.firstName} ${sale.addedBy.lastName}` : '',
-      staffNote: sale.staffNote || '',
-      sellNote: sale.additionalNotes || '',
-      shippingDetails: sale.shippingDetails || ''
-    }));
+    const formattedSales = sales.map(sale => {
+      const saleId = sale._id.toString();
+      const saleReturnAmount = saleReturnMap.has(saleId) ? saleReturnMap.get(saleId) : 0;
+      
+      return {
+        action: "",
+        date: new Date(sale.saleDate).toLocaleString(),
+        invoiceNo: sale.invoiceNo,
+        customer: contact.businessName || `${contact.firstName} ${contact.lastName}`,
+        contactNumber: contact.mobile || '',
+        location: sale.businessLocation?.name || '',
+        paymentStatus: sale.paymentStatus || 'due',
+        paymentMethod: sale.payments && sale.payments.length > 0 ? (sale.payments[0].method ? sale.payments[0].method.name : '') : '',
+        totalAmount: sale.total,
+        totalPaid: sale.total - (sale.paymentDue || 0),
+        sellDue: sale.paymentDue || 0,
+        sellReturn: saleReturnAmount,
+        shippingStatus: sale.shippingStatus || '',
+        totalItems: sale.totalItems || 0,
+        addedBy: sale.addedBy.name || '',
+        staffNote: sale.staffNote || '',
+        sellNote: sale.additionalNotes || '',
+        shippingDetails: sale.shippingDetails || ''
+      };
+    });
 
     // Format result
     const result = {
@@ -483,6 +544,7 @@ async function getPaymentsTab(contact, start, end, locationFilter, res) {
       isDeleted: { $ne: true },
       ...locationFilter
     })
+    .populate('payments.method', 'name')
     .lean();
     
     // Extract payment information
@@ -496,7 +558,7 @@ async function getPaymentsTab(contact, start, end, locationFilter, res) {
               paidOn: new Date(payment.paidOn).toLocaleString(),
               referenceNo: payment.paymentRefNo,
               amount: payment.amount,
-              paymentMethod: `Bank Transfer${payment.bankAccountNo ? ' (Bank Account No.: ' + payment.bankAccountNo + ')' : ''}`,
+              paymentMethod: payment.method ? payment.method.name : `Bank Transfer${payment.bankAccountNo ? ' (Bank Account No.: ' + payment.bankAccountNo + ')' : ''}`,
               paymentFor: `${purchase.referenceNo} (Purchase)`,
               action: ""
             });
@@ -530,16 +592,58 @@ async function getPaymentsTab(contact, start, end, locationFilter, res) {
 // Activities tab
 async function getActivitiesTab(contact, res) {
   try {
-    // In a real implementation, fetch activity logs
-    // For now, create a simple activity log
+    // Get recent purchases
+    const purchases = await Purchase.find({
+      supplier: new mongoose.Types.ObjectId(contact._id),
+      isDeleted: { $ne: true }
+    })
+    .sort({ purchaseDate: -1 })
+    .limit(5)
+    .populate('addedBy', 'name')
+    .lean();
+
+    // Get recent sales if contact is a customer
+    const sales = contact.contactType !== 'Supplier' ? await Sale.find({
+      customer: new mongoose.Types.ObjectId(contact._id),
+      isDeleted: { $ne: true }
+    })
+    .sort({ saleDate: -1 })
+    .limit(5)
+    .populate('addedBy', 'name')
+    .lean() : [];
+
+    // Create activity log
     const activities = [
       {
-        date: new Date().toLocaleString(),
-        action: 'Added',
-        by: 'YOGESH UNDHAD',
-        note: ''
+        date: new Date(contact.createdAt || contact.addedOn || Date.now()).toLocaleString(),
+        action: 'Contact Added',
+        by: 'System',
+        note: `Contact type: ${contact.contactType}`
       }
     ];
+    
+    // Add purchase activities
+    purchases.forEach(purchase => {
+      activities.push({
+        date: new Date(purchase.purchaseDate).toLocaleString(),
+        action: `Purchase Created (${purchase.referenceNo})`,
+        by: purchase.addedBy.name || '',
+        note: `Total amount: ${purchase.total}, Status: ${purchase.status}`
+      });
+    });
+
+    // Add sale activities
+    sales.forEach(sale => {
+      activities.push({
+        date: new Date(sale.saleDate).toLocaleString(),
+        action: `Sale Created (${sale.invoiceNo})`,
+        by: sale.addedBy.name || '',
+        note: `Total amount: ${sale.total}, Status: ${sale.status}`
+      });
+    });
+    
+    // Sort activities by date (newest first)
+    activities.sort((a, b) => new Date(b.date) - new Date(a.date));
     
     // Format result
     const result = {
