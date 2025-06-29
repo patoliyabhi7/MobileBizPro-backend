@@ -276,6 +276,93 @@ exports.getProfitLossReport = async (req, res) => {
       return 0;
     };
 
+    // Calculate profit based on individual sale products rather than overall totals
+    const getDetailedProfitData = async () => {
+      try {
+        // Get sales in date range with location filter if provided
+        const locationFilter = locationId && locationId !== 'All locations' 
+          ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+          : {};
+          
+        // Aggregate sales to calculate detailed profit
+        const salesProfit = await Sale.aggregate([
+          {
+            $match: {
+              saleDate: { $gte: start, $lte: end },
+              isDeleted: false,
+              ...locationFilter
+            }
+          },
+          { $unwind: '$products' },
+          {
+            $group: {
+              _id: null,
+              totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
+              totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+            }
+          }
+        ]);
+        
+        // Aggregate sale returns to calculate detailed returns
+        const saleReturnsLoss = await SaleReturn.aggregate([
+          {
+            $match: {
+              returnDate: { $gte: start, $lte: end },
+              isDeleted: false,
+              ...locationFilter
+            }
+          },
+          { $unwind: '$returnedProducts' },
+          {
+            $group: {
+              _id: null,
+              totalReturnSales: { $sum: { $multiply: ['$returnedProducts.quantity', { $ifNull: ['$returnedProducts.unitCost', 0] }] } },
+            }
+          }
+        ]);
+        
+        // Aggregate purchase returns to calculate detailed purchase returns
+        const purchaseReturnsGain = await PurchaseReturn.aggregate([
+          {
+            $match: {
+              returnDate: { $gte: start, $lte: end },
+              isDeleted: false,
+              ...locationFilter
+            }
+          },
+          { $unwind: '$returnedProducts' },
+          {
+            $group: {
+              _id: null,
+              totalPurchaseReturns: { $sum: { $multiply: ['$returnedProducts.quantity', { $ifNull: ['$returnedProducts.unitCost', 0] }] } },
+            }
+          }
+        ]);
+        
+        const salesProfitAmount = salesProfit.length > 0 ? 
+          salesProfit[0].totalSales - salesProfit[0].totalCost : 0;
+        
+        const saleReturnsAmount = saleReturnsLoss.length > 0 ? 
+          saleReturnsLoss[0].totalReturnSales : 0;
+        
+        const purchaseReturnsAmount = purchaseReturnsGain.length > 0 ? 
+          purchaseReturnsGain[0].totalPurchaseReturns : 0;
+        
+        return {
+          salesProfit: salesProfitAmount,
+          saleReturns: saleReturnsAmount,
+          purchaseReturns: purchaseReturnsAmount
+        };
+      } catch (error) {
+        console.error('Error calculating detailed profit data:', error);
+        return {
+          salesProfit: 0,
+          saleReturns: 0,
+          purchaseReturns: 0
+        };
+      }
+    };
+
     // Get all the data concurrently
     const [
       openingStock,
@@ -295,7 +382,8 @@ exports.getProfitLossReport = async (req, res) => {
       sellDiscount,
       purchaseDiscount,
       sellRoundOff,
-      stockRecovered
+      stockRecovered,
+      detailedProfitData
     ] = await Promise.all([
       getOpeningStockValue(),
       getClosingStockValue(),
@@ -314,14 +402,15 @@ exports.getProfitLossReport = async (req, res) => {
       getSellDiscounts(),
       getPurchaseDiscounts(),
       getSellRoundOff(),
-      getStockRecovered()
+      getStockRecovered(),
+      getDetailedProfitData()
     ]);
 
-    // Calculate Gross Profit
-    // Gross profit = Total sales - Total purchases + Purchase returns - Sale returns
-    const grossProfit = totalSales - totalPurchase + purchaseReturn - saleReturn;
+    // Calculate Gross Profit using individual sales data
+    // Gross profit = Sales profit - Sale returns + Purchase returns
+    const grossProfit = detailedProfitData.salesProfit - detailedProfitData.saleReturns + detailedProfitData.purchaseReturns;
 
-    // Calculate Net Profit based on formula
+    // Calculate Net Profit based on the new gross profit calculation
     const netProfit = grossProfit + 
                       (sellShippingCharge + sellAdditionalExpenses + stockRecovered + purchaseDiscount + sellRoundOff) -
                       (stockAdjustment + totalExpense + purchaseShippingCharge + transferShippingCharge + purchaseAdditionalExpenses + sellDiscount + customerReward);
