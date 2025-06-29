@@ -28,6 +28,7 @@ const paymentSchema = new mongoose.Schema({
   paymentRefNo: { type: String, required: true },
   account: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
   bankAccountNo: { type: String },
+  forShopUse: { type: Boolean, default: false },
   note: String
 });
 

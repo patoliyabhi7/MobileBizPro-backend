@@ -29,6 +29,7 @@ const purchaseReturnSchema = new mongoose.Schema({
     account: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
     paymentRefNo: String,
     bankAccountNo: String,
+    forShopUse: { type: Boolean, default: false },
     note: String
   }],
   returnDate: { type: Date, default: Date.now },

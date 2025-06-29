@@ -189,7 +189,14 @@ function calculateInvoiceData(sale, layout) {
     return acc;
   }, { quantity: 0, amount: 0 });
 
-  const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  // Only count payments not marked for shop use
+  const totalPaid = payments.reduce((sum, p) => {
+    // Include payment only if forShopUse is explicitly false or undefined (for backward compatibility)
+    if (p.forShopUse !== true) {
+      return sum + (p.amount || 0);
+    }
+    return sum;
+  }, 0);
   const paymentDue = sale.paymentDue || 0;
   
   // Optimize number to words conversion
