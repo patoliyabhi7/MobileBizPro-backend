@@ -54,7 +54,7 @@ exports.getAccountBook = async (req, res) => {
     };
 
     // Modified pushEntry - NO balance calculation here, just collect entries
-    const pushEntry = ({ date, description, method, details, note, addedBy, debit, credit }) => {
+    const pushEntry = ({ date, description, method, details, note, addedBy, debit, credit, referenceId, referenceNo }) => {
       entries.push({
         date,
         description,
@@ -64,6 +64,8 @@ exports.getAccountBook = async (req, res) => {
         addedBy: formatUser(addedBy),
         debit: parseFloat(debit || 0),
         credit: parseFloat(credit || 0),
+        referenceId: referenceId || '',
+        referenceNo: referenceNo || '',
         // No balance calculation here - will be done later
       });
     };
@@ -78,65 +80,70 @@ exports.getAccountBook = async (req, res) => {
       saleReturns,
       purchaseReturns
     ] = await Promise.all([
-      Deposit.find({ 
-        ...getDateRangeMatch('dateTime', startDate, endDate, locationId), 
-        to_account: accountId 
+      Deposit.find({
+        ...getDateRangeMatch('dateTime', startDate, endDate, locationId),
+        to_account: accountId
       }).populate('addedBy', 'name'),
-      
-      FundTransfer.find({ 
-        ...getDateRangeMatch('dateTime', startDate, endDate, locationId), 
-        from_account: accountId 
+
+      FundTransfer.find({
+        ...getDateRangeMatch('dateTime', startDate, endDate, locationId),
+        from_account: accountId
       }).populate('addedBy', 'name').populate('to_account', 'name account_number'),
-      
-      FundTransfer.find({ 
-        ...getDateRangeMatch('dateTime', startDate, endDate, locationId), 
-        to_account: accountId 
+
+      FundTransfer.find({
+        ...getDateRangeMatch('dateTime', startDate, endDate, locationId),
+        to_account: accountId
       }).populate('addedBy', 'name').populate('from_account', 'name account_number'),
-      
-      Sale.find({ 
-        ...getDateRangeMatch('saleDate', startDate, endDate, locationId), 
+
+      Sale.find({
+        ...getDateRangeMatch('saleDate', startDate, endDate, locationId),
         'payments.account': accountId,
         isDeleted: { $ne: true }
       }).populate('addedBy', 'name')
         .populate('customer', 'firstName lastName')
         .populate('payments.method', 'name'),
-      
-      Purchase.find({ 
-        ...getDateRangeMatch('purchaseDate', startDate, endDate, locationId), 
+
+      Purchase.find({
+        ...getDateRangeMatch('purchaseDate', startDate, endDate, locationId),
         'payments.account': accountId,
         isDeleted: { $ne: true }
       }).populate('addedBy', 'name')
         .populate('supplier', 'businessName')
         .populate('payments.method', 'name'),
-      
-      Expense.find({ 
-        ...getDateRangeMatch('transactionDate', startDate, endDate, locationId), 
+
+      Expense.find({
+        ...getDateRangeMatch('transactionDate', startDate, endDate, locationId),
         'payments.account': accountId,
         isDeleted: { $ne: true }
       }).populate('addedBy', 'name')
         .populate('category', 'name')
         .populate('payments.method', 'name'),
-      
-      SaleReturn.find({ 
-        ...getDateRangeMatch('returnDate', startDate, endDate, locationId), 
+
+      SaleReturn.find({
+        ...getDateRangeMatch('returnDate', startDate, endDate, locationId),
         'returnPayments.account': accountId,
         isDeleted: { $ne: true }
-      }).populate('addedBy', 'name')
-        .populate('returnPayments.method', 'name'),
-      
-      PurchaseReturn.find({ 
-        ...getDateRangeMatch('returnDate', startDate, endDate, locationId), 
+      })
+        .populate('addedBy', 'name')
+        .populate('returnPayments.method', 'name')
+        .populate('originalSale', 'invoiceNo') // populate for reference
+        .populate('newPurchase', 'referenceNo'), // populate for reference
+
+      PurchaseReturn.find({
+        ...getDateRangeMatch('returnDate', startDate, endDate, locationId),
         'returnPayments.account': accountId,
         isDeleted: { $ne: true }
-      }).populate('addedBy', 'name')
-        .populate('returnPayments.method', 'name'),
+      })
+        .populate('addedBy', 'name')
+        .populate('returnPayments.method', 'name')
+        .populate('originalPurchase', 'referenceNo'), // populate for reference
     ]);
 
     // Process Deposits
     deposits.forEach(dep => {
       if (isInDateRange(dep.dateTime)) {
         const description = `Deposit\nRef: ${dep.referenceNo || '-'}\nAdded By: ${dep.addedBy?.name || ''}`;
-        
+
         pushEntry({
           date: dep.dateTime,
           description,
@@ -155,7 +162,7 @@ exports.getAccountBook = async (req, res) => {
       if (isInDateRange(tr.dateTime)) {
         const toAccountName = tr.to_account?.name || tr.to_account?.account_number || 'Unknown Account';
         const description = `Fund Transfer\nTo Account: ${toAccountName}\nRef: ${tr.referenceNo || '-'}\nAdded By: ${tr.addedBy?.name || ''}`;
-        
+
         pushEntry({
           date: tr.dateTime,
           description,
@@ -174,7 +181,7 @@ exports.getAccountBook = async (req, res) => {
       if (isInDateRange(tr.dateTime)) {
         const fromAccountName = tr.from_account?.name || tr.from_account?.account_number || 'Unknown Account';
         const description = `Fund Transfer\nFrom Account: ${fromAccountName}\nRef: ${tr.referenceNo || '-'}\nAdded By: ${tr.addedBy?.name || ''}`;
-        
+
         pushEntry({
           date: tr.dateTime,
           description,
@@ -193,14 +200,11 @@ exports.getAccountBook = async (req, res) => {
       sale.payments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || sale.saleDate);
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
-          const customerName = sale.customer?.firstName ? 
+          const customerName = sale.customer?.firstName ?
             `${sale.customer.firstName} ${sale.customer.lastName || ''}`.trim() : 'N/A';
-          
-          const description = `Sale\nCustomer: ${customerName}\nInvoice No: ${sale.invoiceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${sale.addedBy?.name || ''}`;
-          
-          // Handle different method structures
+          const description = `Sale\nCustomer: ${customerName}\nReference No: ${sale.invoiceNo || ''}\nInvoice No: ${sale.invoiceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${sale.addedBy?.name || ''}`;
+          // Now Reference No is above Pay reference no.
           const methodName = pmt.method?.name || pmt.method || '';
-          
           pushEntry({
             date: paidDate,
             description,
@@ -209,7 +213,9 @@ exports.getAccountBook = async (req, res) => {
             note: sale.additionalNotes || sale.staffNote || '',
             addedBy: sale.addedBy,
             debit: 0,
-            credit: parseFloat(pmt.amount || 0)
+            credit: parseFloat(pmt.amount || 0),
+            referenceId: sale._id,
+            referenceNo: sale.invoiceNo || ''
           });
         }
       });
@@ -221,12 +227,9 @@ exports.getAccountBook = async (req, res) => {
         const paidDate = new Date(pmt.paidOn || pur.purchaseDate);
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
           const supplierName = pur.supplier?.businessName || 'N/A';
-          
           const description = `Purchase\nSupplier: ${supplierName}\nReference No: ${pur.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${pur.addedBy?.name || ''}`;
-          
-          // Handle different method structures
+          // Reference No above Pay reference no.
           const methodName = pmt.method?.name || pmt.method || '';
-          
           pushEntry({
             date: paidDate,
             description,
@@ -235,31 +238,9 @@ exports.getAccountBook = async (req, res) => {
             note: pur.additionalNotes || '',
             addedBy: pur.addedBy,
             debit: parseFloat(pmt.amount || 0),
-            credit: 0
-          });
-        }
-      });
-    });
-
-    // Process Expenses
-    expenses.forEach(exp => {
-      exp.payments?.forEach(pmt => {
-        const paidDate = new Date(pmt.paidOn || exp.transactionDate);
-        if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
-          const description = `Expense\nCategory: ${exp.category?.name || 'General'}\nReference No: ${exp.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${exp.addedBy?.name || ''}`;
-          
-          // Handle different method structures
-          const methodName = pmt.method?.name || pmt.method || '';
-          
-          pushEntry({
-            date: paidDate,
-            description,
-            method: methodName,
-            details: pmt.note || '',
-            note: exp.additionalNotes || '',
-            addedBy: exp.addedBy,
-            debit: parseFloat(pmt.amount || 0),
-            credit: 0
+            credit: 0,
+            referenceId: pur._id,
+            referenceNo: pur.referenceNo || ''
           });
         }
       });
@@ -270,11 +251,18 @@ exports.getAccountBook = async (req, res) => {
       ret.returnPayments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || ret.returnDate);
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
-          const description = `Sale Return\nRef: ${ret.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${ret.addedBy?.name || ''}`;
-          
-          // Handle different method structures
+          let referenceId = '';
+          let referenceNo = '';
+          if (ret.newPurchase) {
+            referenceId = ret.newPurchase._id || ret.newPurchase;
+            referenceNo = ret.newPurchase.referenceNo || '';
+          } else if (ret.originalSale) {
+            referenceId = ret.originalSale._id || ret.originalSale;
+            referenceNo = ret.originalSale.invoiceNo || '';
+          }
+          const description = `Sale Return\nReference No: ${referenceNo}\nRef: ${ret.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${ret.addedBy?.name || ''}`;
+          // Reference No above Pay reference no.
           const methodName = pmt.method?.name || pmt.method || '';
-          
           pushEntry({
             date: paidDate,
             description,
@@ -283,7 +271,9 @@ exports.getAccountBook = async (req, res) => {
             note: '',
             addedBy: ret.addedBy,
             debit: parseFloat(pmt.amount || 0),
-            credit: 0
+            credit: 0,
+            referenceId,
+            referenceNo
           });
         }
       });
@@ -294,11 +284,15 @@ exports.getAccountBook = async (req, res) => {
       ret.returnPayments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || ret.returnDate);
         if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
-          const description = `Purchase Return\nRef: ${ret.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${ret.addedBy?.name || ''}`;
-          
-          // Handle different method structures
+          let referenceId = '';
+          let referenceNo = '';
+          if (ret.originalPurchase) {
+            referenceId = ret.originalPurchase._id || ret.originalPurchase;
+            referenceNo = ret.originalPurchase.referenceNo || '';
+          }
+          const description = `Purchase Return\nReference No: ${referenceNo}\nRef: ${ret.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${ret.addedBy?.name || ''}`;
+          // Reference No above Pay reference no.
           const methodName = pmt.method?.name || pmt.method || '';
-          
           pushEntry({
             date: paidDate,
             description,
@@ -307,7 +301,9 @@ exports.getAccountBook = async (req, res) => {
             note: '',
             addedBy: ret.addedBy,
             debit: 0,
-            credit: parseFloat(pmt.amount || 0)
+            credit: parseFloat(pmt.amount || 0),
+            referenceId,
+            referenceNo
           });
         }
       });
@@ -325,13 +321,13 @@ exports.getAccountBook = async (req, res) => {
       // Update totals
       totalCredit += entry.credit;
       totalDebit += entry.debit;
-      
+
       // Calculate new running balance
       runningBalance += entry.credit - entry.debit;
-      
+
       // Store the balance after this transaction
       entry.balance = parseFloat(runningBalance.toFixed(2));
-      
+
       // Format the amounts for display
       entry.debit = entry.debit ? parseFloat(entry.debit.toFixed(2)) : 0;
       entry.credit = entry.credit ? parseFloat(entry.credit.toFixed(2)) : 0;
