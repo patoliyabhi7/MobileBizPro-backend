@@ -61,7 +61,7 @@ exports.getProfitLossReport = async (req, res) => {
 
     // Continue with the standard profit/loss report
     const locationFilter = locationId && locationId !== 'All locations' ? { businessLocation: locationId } : {};
-    
+
     // Define date ranges
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -79,7 +79,7 @@ exports.getProfitLossReport = async (req, res) => {
     const getOpeningStockValue = async () => {
       try {
         console.log('Calculating opening stock value as of', start);
-        
+
         // Get all stock items as of start date, using the quantity field directly
         const stocks = await Stock.find({
           ...locationFilter,
@@ -87,10 +87,10 @@ exports.getProfitLossReport = async (req, res) => {
           createdAt: { $lt: start },
           quantity: { $gt: 0 } // Only include items with stock
         }).populate('product');
-        
+
         let purchaseValue = 0;
         let saleValue = 0;
-        
+
         // Calculate stock values based on the quantity field in stock model
         for (const stock of stocks) {
           if (stock.product) {
@@ -98,7 +98,7 @@ exports.getProfitLossReport = async (req, res) => {
             saleValue += stock.quantity * (stock.product.sellingPrice || 0);
           }
         }
-        
+
         return { purchaseValue, saleValue };
       } catch (error) {
         console.error('Error calculating opening stock:', error);
@@ -110,7 +110,7 @@ exports.getProfitLossReport = async (req, res) => {
     const getClosingStockValue = async () => {
       try {
         console.log('Calculating closing stock value as of', end);
-        
+
         // Get all stock items as of end date, using the quantity field directly
         const stocks = await Stock.find({
           ...locationFilter,
@@ -118,10 +118,10 @@ exports.getProfitLossReport = async (req, res) => {
           createdAt: { $lte: end },
           quantity: { $gt: 0 } // Only include items with stock
         }).populate('product');
-        
+
         let purchaseValue = 0;
         let saleValue = 0;
-        
+
         // Calculate stock values based on the quantity field in stock model
         for (const stock of stocks) {
           if (stock.product) {
@@ -129,7 +129,7 @@ exports.getProfitLossReport = async (req, res) => {
             saleValue += stock.quantity * (stock.product.sellingPrice || 0);
           }
         }
-        
+
         console.log(`Closing stock: Purchase value: ${purchaseValue}, Sale value: ${saleValue}`);
         return { purchaseValue, saleValue };
       } catch (error) {
@@ -145,7 +145,7 @@ exports.getProfitLossReport = async (req, res) => {
         // Use total from purchase document if available
         if (purchase.totalAmountWithGst) return total + purchase.totalAmountWithGst;
         if (purchase.total) return total + purchase.total;
-        
+
         // Fall back to calculating from products if total isn't available
         const purchaseTotal = purchase.products.reduce((sum, product) => {
           return sum + ((product.quantity || 0) * (product.unitCost || 0));
@@ -161,7 +161,7 @@ exports.getProfitLossReport = async (req, res) => {
         // Use total from sale document if available
         if (sale.totalAmountWithGst) return total + sale.totalAmountWithGst;
         if (sale.total) return total + sale.total;
-        
+
         // Fall back to calculating from products if total isn't available
         const saleTotal = sale.products.reduce((sum, product) => {
           return sum + ((product.quantity || 0) * (product.unitPrice || 0));
@@ -280,11 +280,11 @@ exports.getProfitLossReport = async (req, res) => {
     const getDetailedProfitData = async () => {
       try {
         // Get sales in date range with location filter if provided
-        const locationFilter = locationId && locationId !== 'All locations' 
-          ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+        const locationFilter = locationId && locationId !== 'All locations'
+          ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
           : {};
-          
-        // Aggregate sales to calculate detailed profit
+
+        // Aggregate sales to calculate detailed profit - UPDATED to use stock unit cost
         const salesProfit = await Sale.aggregate([
           {
             $match: {
@@ -295,14 +295,23 @@ exports.getProfitLossReport = async (req, res) => {
           },
           { $unwind: '$products' },
           {
+            $lookup: {
+              from: 'stocks',
+              localField: 'products.stockId',
+              foreignField: '_id',
+              as: 'stockData'
+            }
+          },
+          { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
+          {
             $group: {
               _id: null,
               totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
-              totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+              totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] } },
             }
           }
         ]);
-        
+
         // Aggregate sale returns to calculate detailed returns
         const saleReturnsLoss = await SaleReturn.aggregate([
           {
@@ -320,7 +329,7 @@ exports.getProfitLossReport = async (req, res) => {
             }
           }
         ]);
-        
+
         // Aggregate purchase returns to calculate detailed purchase returns
         const purchaseReturnsGain = await PurchaseReturn.aggregate([
           {
@@ -338,16 +347,16 @@ exports.getProfitLossReport = async (req, res) => {
             }
           }
         ]);
-        
-        const salesProfitAmount = salesProfit.length > 0 ? 
+
+        const salesProfitAmount = salesProfit.length > 0 ?
           salesProfit[0].totalSales - salesProfit[0].totalCost : 0;
-        
-        const saleReturnsAmount = saleReturnsLoss.length > 0 ? 
+
+        const saleReturnsAmount = saleReturnsLoss.length > 0 ?
           saleReturnsLoss[0].totalReturnSales : 0;
-        
-        const purchaseReturnsAmount = purchaseReturnsGain.length > 0 ? 
+
+        const purchaseReturnsAmount = purchaseReturnsGain.length > 0 ?
           purchaseReturnsGain[0].totalPurchaseReturns : 0;
-        
+
         return {
           salesProfit: salesProfitAmount,
           saleReturns: saleReturnsAmount,
@@ -411,9 +420,9 @@ exports.getProfitLossReport = async (req, res) => {
     const grossProfit = detailedProfitData.salesProfit - detailedProfitData.saleReturns + detailedProfitData.purchaseReturns;
 
     // Calculate Net Profit based on the new gross profit calculation
-    const netProfit = grossProfit + 
-                      (sellShippingCharge + sellAdditionalExpenses + stockRecovered + purchaseDiscount + sellRoundOff) -
-                      (stockAdjustment + totalExpense + purchaseShippingCharge + transferShippingCharge + purchaseAdditionalExpenses + sellDiscount + customerReward);
+    const netProfit = grossProfit +
+      (sellShippingCharge + sellAdditionalExpenses + stockRecovered + purchaseDiscount + sellRoundOff) -
+      (stockAdjustment + totalExpense + purchaseShippingCharge + transferShippingCharge + purchaseAdditionalExpenses + sellDiscount + customerReward);
 
     // Format response
     const report = {
@@ -434,7 +443,7 @@ exports.getProfitLossReport = async (req, res) => {
       totalSellDiscount: parseFloat(sellDiscount).toFixed(2),
       totalCustomerReward: parseFloat(customerReward).toFixed(2),
       totalSaleReturn: parseFloat(saleReturn).toFixed(2),
-      
+
       // Right column (income)
       closingStock: {
         byPurchasePrice: parseFloat(closingStock.purchaseValue).toFixed(2),
@@ -447,7 +456,7 @@ exports.getProfitLossReport = async (req, res) => {
       totalPurchaseReturn: parseFloat(purchaseReturn).toFixed(2),
       totalPurchaseDiscount: parseFloat(purchaseDiscount).toFixed(2),
       totalSellRoundOff: parseFloat(sellRoundOff).toFixed(2),
-      
+
       // Profit calculations
       grossProfit: parseFloat(grossProfit).toFixed(2),
       netProfit: parseFloat(netProfit).toFixed(2)
@@ -477,8 +486,8 @@ async function getProfitByProducts(req, res) {
     end.setHours(23, 59, 59, 999);
 
     // Get all sales within date range and with location filter if provided
-    const locationFilter = locationId && locationId !== 'All locations' 
-      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    const locationFilter = locationId && locationId !== 'All locations'
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
       : {};
 
     // Aggregate sales to calculate profit by product
@@ -491,6 +500,15 @@ async function getProfitByProducts(req, res) {
         }
       },
       { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'stocks',
+          localField: 'products.stockId',
+          foreignField: '_id',
+          as: 'stockData'
+        }
+      },
+      { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: 'products',
@@ -506,7 +524,7 @@ async function getProfitByProducts(req, res) {
           product: { $first: '$productData.productName' },
           sku: { $first: '$productData.sku' },
           totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
-          totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+          totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] } },
         }
       },
       {
@@ -541,8 +559,8 @@ async function getProfitByCategories(req, res) {
     end.setHours(23, 59, 59, 999);
 
     // Get all sales within date range and with location filter if provided
-    const locationFilter = locationId && locationId !== 'All locations' 
-      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    const locationFilter = locationId && locationId !== 'All locations'
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
       : {};
 
     // Aggregate sales to calculate profit by category
@@ -555,6 +573,15 @@ async function getProfitByCategories(req, res) {
         }
       },
       { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'stocks',
+          localField: 'products.stockId',
+          foreignField: '_id',
+          as: 'stockData'
+        }
+      },
+      { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: 'products',
@@ -583,7 +610,7 @@ async function getProfitByCategories(req, res) {
           _id: '$productData.category',
           category: { $first: { $ifNull: ['$categoryData.name', 'Uncategorized'] } },
           totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
-          totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+          totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] } },
         }
       },
       {
@@ -618,8 +645,8 @@ async function getProfitByBrands(req, res) {
     end.setHours(23, 59, 59, 999);
 
     // Get all sales within date range and with location filter if provided
-    const locationFilter = locationId && locationId !== 'All locations' 
-      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    const locationFilter = locationId && locationId !== 'All locations'
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
       : {};
 
     // Aggregate sales to calculate profit by brand
@@ -632,6 +659,15 @@ async function getProfitByBrands(req, res) {
         }
       },
       { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'stocks',
+          localField: 'products.stockId',
+          foreignField: '_id',
+          as: 'stockData'
+        }
+      },
+      { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: 'products',
@@ -660,7 +696,7 @@ async function getProfitByBrands(req, res) {
           _id: '$productData.brand',
           brand: { $first: { $ifNull: ['$brandData.name', 'No Brand'] } },
           totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
-          totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+          totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] } },
         }
       },
       {
@@ -753,11 +789,11 @@ async function getProfitByInvoice(req, res) {
     end.setHours(23, 59, 59, 999);
 
     // Get all sales within date range and with location filter if provided
-    const locationFilter = locationId && locationId !== 'All locations' 
-      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    const locationFilter = locationId && locationId !== 'All locations'
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
       : {};
 
-    // Aggregate sales to calculate profit by invoice
+    // Aggregate sales to calculate profit by invoice - UPDATED
     const invoiceProfits = await Sale.aggregate([
       {
         $match: {
@@ -766,30 +802,23 @@ async function getProfitByInvoice(req, res) {
           ...locationFilter
         }
       },
+      { $unwind: '$products' },
       {
-        $project: {
-          invoiceNo: 1,
-          saleDate: 1,
-          totalSales: { $ifNull: ['$total', 0] },
-          products: 1
+        $lookup: {
+          from: 'stocks',
+          localField: 'products.stockId',
+          foreignField: '_id',
+          as: 'stockData'
         }
       },
+      { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
       {
-        $addFields: {
-          totalCost: {
-            $sum: {
-              $map: {
-                input: '$products',
-                as: 'product',
-                in: { 
-                  $multiply: [
-                    { $ifNull: ['$$product.quantity', 0] }, 
-                    { $ifNull: ['$$product.originalUnitCost', 0] }
-                  ] 
-                }
-              }
-            }
-          }
+        $group: {
+          _id: '$_id',
+          invoiceNo: { $first: '$invoiceNo' },
+          saleDate: { $first: '$saleDate' },
+          totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
+          totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] } },
         }
       },
       {
@@ -824,11 +853,11 @@ async function getProfitByDate(req, res) {
     end.setHours(23, 59, 59, 999);
 
     // Get all sales within date range and with location filter if provided
-    const locationFilter = locationId && locationId !== 'All locations' 
-      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    const locationFilter = locationId && locationId !== 'All locations'
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
       : {};
 
-    // Aggregate sales to calculate profit by date
+    // Aggregate sales to calculate profit by date - UPDATED
     const dateProfits = await Sale.aggregate([
       {
         $match: {
@@ -837,39 +866,31 @@ async function getProfitByDate(req, res) {
           ...locationFilter
         }
       },
+      { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'stocks',
+          localField: 'products.stockId',
+          foreignField: '_id',
+          as: 'stockData'
+        }
+      },
+      { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
       {
         $project: {
           saleDate: {
             $dateToString: { format: '%Y-%m-%d', date: '$saleDate' }
           },
-          totalSales: { $ifNull: ['$total', 0] },
-          products: 1
-        }
-      },
-      {
-        $addFields: {
-          totalCost: {
-            $sum: {
-              $map: {
-                input: '$products',
-                as: 'product',
-                in: { 
-                  $multiply: [
-                    { $ifNull: ['$$product.quantity', 0] }, 
-                    { $ifNull: ['$$product.originalUnitCost', 0] }
-                  ] 
-                }
-              }
-            }
-          }
+          productSales: { $multiply: ['$products.quantity', '$products.unitPrice'] },
+          productCost: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] }
         }
       },
       {
         $group: {
           _id: '$saleDate',
           date: { $first: '$saleDate' },
-          totalSales: { $sum: '$totalSales' },
-          totalCost: { $sum: '$totalCost' }
+          totalSales: { $sum: '$productSales' },
+          totalCost: { $sum: '$productCost' }
         }
       },
       {
@@ -903,11 +924,11 @@ async function getProfitByCustomer(req, res) {
     end.setHours(23, 59, 59, 999);
 
     // Get all sales within date range and with location filter if provided
-    const locationFilter = locationId && locationId !== 'All locations' 
-      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    const locationFilter = locationId && locationId !== 'All locations'
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
       : {};
 
-    // Aggregate sales to calculate profit by customer
+    // Aggregate sales to calculate profit by customer - UPDATED
     const customerProfits = await Sale.aggregate([
       {
         $match: {
@@ -916,6 +937,16 @@ async function getProfitByCustomer(req, res) {
           ...locationFilter
         }
       },
+      { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'stocks',
+          localField: 'products.stockId',
+          foreignField: '_id',
+          as: 'stockData'
+        }
+      },
+      { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: 'contacts',
@@ -931,11 +962,13 @@ async function getProfitByCustomer(req, res) {
         }
       },
       {
-        $addFields: {
+        $project: {
+          _id: 1,
+          customer: 1,
           customerName: {
             $cond: [
               { $ifNull: ['$customerData.businessName', false] },
-              { 
+              {
                 $concat: [
                   '$customerData.businessName',
                   ' ',
@@ -953,29 +986,16 @@ async function getProfitByCustomer(req, res) {
               }
             ]
           },
-          totalSales: { $ifNull: ['$total', 0] },
-          totalCost: {
-            $sum: {
-              $map: {
-                input: '$products',
-                as: 'product',
-                in: { 
-                  $multiply: [
-                    { $ifNull: ['$$product.quantity', 0] }, 
-                    { $ifNull: ['$$product.originalUnitCost', 0] }
-                  ] 
-                }
-              }
-            }
-          }
+          productSales: { $multiply: ['$products.quantity', '$products.unitPrice'] },
+          productCost: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] }
         }
       },
       {
         $group: {
           _id: '$customer',
           customerName: { $first: '$customerName' },
-          totalSales: { $sum: '$totalSales' },
-          totalCost: { $sum: '$totalCost' }
+          totalSales: { $sum: '$productSales' },
+          totalCost: { $sum: '$productCost' }
         }
       },
       {
@@ -1009,11 +1029,11 @@ async function getProfitByDay(req, res) {
     end.setHours(23, 59, 59, 999);
 
     // Get all sales within date range and with location filter if provided
-    const locationFilter = locationId && locationId !== 'All locations' 
-      ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+    const locationFilter = locationId && locationId !== 'All locations'
+      ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
       : {};
 
-    // Aggregate sales to calculate profit by day of week
+    // Aggregate sales to calculate profit by day of week - UPDATED
     const dayProfits = await Sale.aggregate([
       {
         $match: {
@@ -1022,31 +1042,28 @@ async function getProfitByDay(req, res) {
           ...locationFilter
         }
       },
+      { $unwind: '$products' },
       {
-        $addFields: {
-          dayOfWeek: { $dayOfWeek: '$saleDate' }, // 1 for Sunday, 2 for Monday, ..., 7 for Saturday
-          totalSales: { $ifNull: ['$total', 0] },
-          totalCost: {
-            $sum: {
-              $map: {
-                input: '$products',
-                as: 'product',
-                in: { 
-                  $multiply: [
-                    { $ifNull: ['$$product.quantity', 0] }, 
-                    { $ifNull: ['$$product.originalUnitCost', 0] }
-                  ] 
-                }
-              }
-            }
-          }
+        $lookup: {
+          from: 'stocks',
+          localField: 'products.stockId',
+          foreignField: '_id',
+          as: 'stockData'
+        }
+      },
+      { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          dayOfWeek: { $dayOfWeek: '$saleDate' },
+          productSales: { $multiply: ['$products.quantity', '$products.unitPrice'] },
+          productCost: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] }
         }
       },
       {
         $group: {
           _id: '$dayOfWeek',
-          totalSales: { $sum: '$totalSales' },
-          totalCost: { $sum: '$totalCost' }
+          totalSales: { $sum: '$productSales' },
+          totalCost: { $sum: '$productCost' }
         }
       },
       {
@@ -1095,12 +1112,10 @@ async function getProductsProfitData(req) {
   const end = new Date(endDate);
   end.setHours(23, 59, 59, 999);
 
-  // Get all sales within date range and with location filter if provided
-  const locationFilter = locationId && locationId !== 'All locations' 
-    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+  const locationFilter = locationId && locationId !== 'All locations'
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
     : {};
 
-  // Aggregate sales to calculate profit by product
   const productProfits = await Sale.aggregate([
     {
       $match: {
@@ -1110,6 +1125,15 @@ async function getProductsProfitData(req) {
       }
     },
     { $unwind: '$products' },
+    {
+      $lookup: {
+        from: 'stocks',
+        localField: 'products.stockId',
+        foreignField: '_id',
+        as: 'stockData'
+      }
+    },
+    { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
     {
       $lookup: {
         from: 'products',
@@ -1125,7 +1149,7 @@ async function getProductsProfitData(req) {
         product: { $first: '$productData.productName' },
         sku: { $first: '$productData.sku' },
         totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
-        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] } },
       }
     },
     {
@@ -1155,12 +1179,10 @@ async function getCategoriesProfitData(req) {
   const end = new Date(endDate);
   end.setHours(23, 59, 59, 999);
 
-  // Get all sales within date range and with location filter if provided
-  const locationFilter = locationId && locationId !== 'All locations' 
-    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+  const locationFilter = locationId && locationId !== 'All locations'
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
     : {};
 
-  // Aggregate sales to calculate profit by category
   const categoryProfits = await Sale.aggregate([
     {
       $match: {
@@ -1170,6 +1192,15 @@ async function getCategoriesProfitData(req) {
       }
     },
     { $unwind: '$products' },
+    {
+      $lookup: {
+        from: 'stocks',
+        localField: 'products.stockId',
+        foreignField: '_id',
+        as: 'stockData'
+      }
+    },
+    { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
     {
       $lookup: {
         from: 'products',
@@ -1198,7 +1229,7 @@ async function getCategoriesProfitData(req) {
         _id: '$productData.category',
         category: { $first: { $ifNull: ['$categoryData.name', 'Uncategorized'] } },
         totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
-        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] } },
       }
     },
     {
@@ -1227,12 +1258,10 @@ async function getBrandsProfitData(req) {
   const end = new Date(endDate);
   end.setHours(23, 59, 59, 999);
 
-  // Get all sales within date range and with location filter if provided
-  const locationFilter = locationId && locationId !== 'All locations' 
-    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+  const locationFilter = locationId && locationId !== 'All locations'
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
     : {};
 
-  // Aggregate sales to calculate profit by brand
   const brandProfits = await Sale.aggregate([
     {
       $match: {
@@ -1242,6 +1271,15 @@ async function getBrandsProfitData(req) {
       }
     },
     { $unwind: '$products' },
+    {
+      $lookup: {
+        from: 'stocks',
+        localField: 'products.stockId',
+        foreignField: '_id',
+        as: 'stockData'
+      }
+    },
+    { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
     {
       $lookup: {
         from: 'products',
@@ -1270,7 +1308,7 @@ async function getBrandsProfitData(req) {
         _id: '$productData.brand',
         brand: { $first: { $ifNull: ['$brandData.name', 'No Brand'] } },
         totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
-        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] } },
       }
     },
     {
@@ -1299,7 +1337,7 @@ async function getLocationsProfitData(req) {
   const end = new Date(endDate);
   end.setHours(23, 59, 59, 999);
 
-  // Aggregate sales to calculate profit by location
+  // Aggregate sales to calculate profit by location - UPDATED
   const locationProfits = await Sale.aggregate([
     {
       $match: {
@@ -1308,6 +1346,15 @@ async function getLocationsProfitData(req) {
       }
     },
     { $unwind: '$products' },
+    {
+      $lookup: {
+        from: 'stocks',
+        localField: 'products.stockId',
+        foreignField: '_id',
+        as: 'stockData'
+      }
+    },
+    { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
     {
       $lookup: {
         from: 'businesslocations',
@@ -1324,7 +1371,7 @@ async function getLocationsProfitData(req) {
         _id: '$businessLocation',
         location: { $first: '$locationData.name' },
         totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
-        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$products.originalUnitCost', 0] }] } },
+        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] } },
       }
     },
     {
@@ -1354,11 +1401,11 @@ async function getInvoiceProfitData(req) {
   end.setHours(23, 59, 59, 999);
 
   // Get all sales within date range and with location filter if provided
-  const locationFilter = locationId && locationId !== 'All locations' 
-    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+  const locationFilter = locationId && locationId !== 'All locations'
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
     : {};
 
-  // Aggregate sales to calculate profit by invoice
+  // Aggregate sales to calculate profit by invoice - UPDATED
   const invoiceProfits = await Sale.aggregate([
     {
       $match: {
@@ -1367,30 +1414,23 @@ async function getInvoiceProfitData(req) {
         ...locationFilter
       }
     },
+    { $unwind: '$products' },
     {
-      $project: {
-        invoiceNo: 1,
-        saleDate: 1,
-        totalSales: { $ifNull: ['$total', 0] },
-        products: 1
+      $lookup: {
+        from: 'stocks',
+        localField: 'products.stockId',
+        foreignField: '_id',
+        as: 'stockData'
       }
     },
+    { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
     {
-      $addFields: {
-        totalCost: {
-          $sum: {
-            $map: {
-              input: '$products',
-              as: 'product',
-              in: { 
-                $multiply: [
-                  { $ifNull: ['$$product.quantity', 0] }, 
-                  { $ifNull: ['$$product.originalUnitCost', 0] }
-                ] 
-              }
-            }
-          }
-        }
+      $group: {
+        _id: '$_id',
+        invoiceNo: { $first: '$invoiceNo' },
+        saleDate: { $first: '$saleDate' },
+        totalSales: { $sum: { $multiply: ['$products.quantity', '$products.unitPrice'] } },
+        totalCost: { $sum: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] } },
       }
     },
     {
@@ -1421,11 +1461,11 @@ async function getDateProfitData(req) {
   end.setHours(23, 59, 59, 999);
 
   // Get all sales within date range and with location filter if provided
-  const locationFilter = locationId && locationId !== 'All locations' 
-    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+  const locationFilter = locationId && locationId !== 'All locations'
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
     : {};
 
-  // Aggregate sales to calculate profit by date
+  // Aggregate sales to calculate profit by date - UPDATED
   const dateProfits = await Sale.aggregate([
     {
       $match: {
@@ -1434,39 +1474,31 @@ async function getDateProfitData(req) {
         ...locationFilter
       }
     },
+    { $unwind: '$products' },
+    {
+      $lookup: {
+        from: 'stocks',
+        localField: 'products.stockId',
+        foreignField: '_id',
+        as: 'stockData'
+      }
+    },
+    { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
     {
       $project: {
         saleDate: {
           $dateToString: { format: '%Y-%m-%d', date: '$saleDate' }
         },
-        totalSales: { $ifNull: ['$total', 0] },
-        products: 1
-      }
-    },
-    {
-      $addFields: {
-        totalCost: {
-          $sum: {
-            $map: {
-              input: '$products',
-              as: 'product',
-              in: { 
-                $multiply: [
-                  { $ifNull: ['$$product.quantity', 0] }, 
-                  { $ifNull: ['$$product.originalUnitCost', 0] }
-                ] 
-              }
-            }
-          }
-        }
+        productSales: { $multiply: ['$products.quantity', '$products.unitPrice'] },
+        productCost: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] }
       }
     },
     {
       $group: {
         _id: '$saleDate',
         date: { $first: '$saleDate' },
-        totalSales: { $sum: '$totalSales' },
-        totalCost: { $sum: '$totalCost' }
+        totalSales: { $sum: '$productSales' },
+        totalCost: { $sum: '$productCost' }
       }
     },
     {
@@ -1496,11 +1528,11 @@ async function getCustomerProfitData(req) {
   end.setHours(23, 59, 59, 999);
 
   // Get all sales within date range and with location filter if provided
-  const locationFilter = locationId && locationId !== 'All locations' 
-    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+  const locationFilter = locationId && locationId !== 'All locations'
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
     : {};
 
-  // Aggregate sales to calculate profit by customer
+  // Aggregate sales to calculate profit by customer - UPDATED
   const customerProfits = await Sale.aggregate([
     {
       $match: {
@@ -1509,6 +1541,16 @@ async function getCustomerProfitData(req) {
         ...locationFilter
       }
     },
+    { $unwind: '$products' },
+    {
+      $lookup: {
+        from: 'stocks',
+        localField: 'products.stockId',
+        foreignField: '_id',
+        as: 'stockData'
+      }
+    },
+    { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
     {
       $lookup: {
         from: 'contacts',
@@ -1524,11 +1566,13 @@ async function getCustomerProfitData(req) {
       }
     },
     {
-      $addFields: {
+      $project: {
+        _id: 1,
+        customer: 1,
         customerName: {
           $cond: [
             { $ifNull: ['$customerData.businessName', false] },
-            { 
+            {
               $concat: [
                 '$customerData.businessName',
                 ' ',
@@ -1546,29 +1590,16 @@ async function getCustomerProfitData(req) {
             }
           ]
         },
-        totalSales: { $ifNull: ['$total', 0] },
-        totalCost: {
-          $sum: {
-            $map: {
-              input: '$products',
-              as: 'product',
-              in: { 
-                $multiply: [
-                  { $ifNull: ['$$product.quantity', 0] }, 
-                  { $ifNull: ['$$product.originalUnitCost', 0] }
-                ] 
-              }
-            }
-          }
-        }
+        productSales: { $multiply: ['$products.quantity', '$products.unitPrice'] },
+        productCost: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] }
       }
     },
     {
       $group: {
         _id: '$customer',
         customerName: { $first: '$customerName' },
-        totalSales: { $sum: '$totalSales' },
-        totalCost: { $sum: '$totalCost' }
+        totalSales: { $sum: '$productSales' },
+        totalCost: { $sum: '$productCost' }
       }
     },
     {
@@ -1598,11 +1629,11 @@ async function getDayProfitData(req) {
   end.setHours(23, 59, 59, 999);
 
   // Get all sales within date range and with location filter if provided
-  const locationFilter = locationId && locationId !== 'All locations' 
-    ? { businessLocation: new mongoose.Types.ObjectId(locationId) } 
+  const locationFilter = locationId && locationId !== 'All locations'
+    ? { businessLocation: new mongoose.Types.ObjectId(locationId) }
     : {};
 
-  // Aggregate sales to calculate profit by day of week
+  // Aggregate sales to calculate profit by day of week - UPDATED
   const dayProfits = await Sale.aggregate([
     {
       $match: {
@@ -1611,31 +1642,28 @@ async function getDayProfitData(req) {
         ...locationFilter
       }
     },
+    { $unwind: '$products' },
     {
-      $addFields: {
-        dayOfWeek: { $dayOfWeek: '$saleDate' }, // 1 for Sunday, 2 for Monday, ..., 7 for Saturday
-        totalSales: { $ifNull: ['$total', 0] },
-        totalCost: {
-          $sum: {
-            $map: {
-              input: '$products',
-              as: 'product',
-              in: { 
-                $multiply: [
-                  { $ifNull: ['$$product.quantity', 0] }, 
-                  { $ifNull: ['$$product.originalUnitCost', 0] }
-                ] 
-              }
-            }
-          }
-        }
+      $lookup: {
+        from: 'stocks',
+        localField: 'products.stockId',
+        foreignField: '_id',
+        as: 'stockData'
+      }
+    },
+    { $unwind: { path: '$stockData', preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        dayOfWeek: { $dayOfWeek: '$saleDate' },
+        productSales: { $multiply: ['$products.quantity', '$products.unitPrice'] },
+        productCost: { $multiply: ['$products.quantity', { $ifNull: ['$stockData.unitCost', 0] }] }
       }
     },
     {
       $group: {
         _id: '$dayOfWeek',
-        totalSales: { $sum: '$totalSales' },
-        totalCost: { $sum: '$totalCost' }
+        totalSales: { $sum: '$productSales' },
+        totalCost: { $sum: '$productCost' }
       }
     },
     {
@@ -1658,7 +1686,7 @@ async function getDayProfitData(req) {
         grossProfit: { $subtract: ['$totalSales', '$totalCost'] }
       }
     },
-    { $sort: { _id: 1 } } // Sort by day of week
+    { $sort: { _id: 1 } }
   ]);
 
   // Calculate total profit

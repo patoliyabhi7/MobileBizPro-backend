@@ -88,12 +88,18 @@ exports.getAccountBook = async (req, res) => {
       FundTransfer.find({
         ...getDateRangeMatch('dateTime', startDate, endDate, locationId),
         from_account: accountId
-      }).populate('addedBy', 'name').populate('to_account', 'name account_number'),
+      })
+        .populate('addedBy', 'name')
+        .populate('from_account', 'name account_number')
+        .populate('to_account', 'name account_number'), // <-- Add this line
 
       FundTransfer.find({
         ...getDateRangeMatch('dateTime', startDate, endDate, locationId),
         to_account: accountId
-      }).populate('addedBy', 'name').populate('from_account', 'name account_number'),
+      })
+        .populate('addedBy', 'name')
+        .populate('from_account', 'name account_number')
+        .populate('to_account', 'name account_number'),
 
       Sale.find({
         ...getDateRangeMatch('saleDate', startDate, endDate, locationId),
@@ -160,8 +166,9 @@ exports.getAccountBook = async (req, res) => {
     // Process Fund Transfers Out
     transfersOut.forEach(tr => {
       if (isInDateRange(tr.dateTime)) {
+        const fromAccountName = tr.from_account?.name || tr.from_account?.account_number || 'Unknown Account';
         const toAccountName = tr.to_account?.name || tr.to_account?.account_number || 'Unknown Account';
-        const description = `Fund Transfer\nTo Account: ${toAccountName}\nRef: ${tr.referenceNo || '-'}\nAdded By: ${tr.addedBy?.name || ''}`;
+        const description = `Fund Transfer (Out)\nFrom: ${fromAccountName}\nTo: ${toAccountName}\nRef: ${tr.referenceNo || '-'}\nAdded By: ${tr.addedBy?.name || ''}`;
 
         pushEntry({
           date: tr.dateTime,
@@ -179,8 +186,16 @@ exports.getAccountBook = async (req, res) => {
     // Process Fund Transfers In
     transfersIn.forEach(tr => {
       if (isInDateRange(tr.dateTime)) {
-        const fromAccountName = tr.from_account?.name || tr.from_account?.account_number || 'Unknown Account';
-        const description = `Fund Transfer\nFrom Account: ${fromAccountName}\nRef: ${tr.referenceNo || '-'}\nAdded By: ${tr.addedBy?.name || ''}`;
+        let fromAccountName = 'Unknown Account';
+        if (tr.from_account) {
+          if (typeof tr.from_account === 'object') {
+            fromAccountName = tr.from_account.name || tr.from_account.account_number || 'Unknown Account';
+          } else if (typeof tr.from_account === 'string') {
+            fromAccountName = tr.from_account; // fallback to ObjectId string
+          }
+        }
+        const toAccountName = tr.to_account?.name || tr.to_account?.account_number || 'Unknown Account';
+        const description = `Fund Transfer (In)\nFrom: ${fromAccountName}\nTo: ${toAccountName}\nRef: ${tr.referenceNo || '-'}\nAdded By: ${tr.addedBy?.name || ''}`;
 
         pushEntry({
           date: tr.dateTime,
