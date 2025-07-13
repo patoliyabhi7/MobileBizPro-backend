@@ -70,6 +70,7 @@ exports.getAccountBook = async (req, res) => {
       });
     };
 
+    // Remove date filter from main query for these models
     const [
       deposits,
       transfersOut,
@@ -91,7 +92,7 @@ exports.getAccountBook = async (req, res) => {
       })
         .populate('addedBy', 'name')
         .populate('from_account', 'name account_number')
-        .populate('to_account', 'name account_number'), // <-- Add this line
+        .populate('to_account', 'name account_number'),
 
       FundTransfer.find({
         ...getDateRangeMatch('dateTime', startDate, endDate, locationId),
@@ -101,48 +102,58 @@ exports.getAccountBook = async (req, res) => {
         .populate('from_account', 'name account_number')
         .populate('to_account', 'name account_number'),
 
+      // Remove date filter for sales
       Sale.find({
-        ...getDateRangeMatch('saleDate', startDate, endDate, locationId),
+        //'saleDate' filter removed
+        businessLocation: locationId ? locationId : { $exists: true },
         'payments.account': accountId,
         isDeleted: { $ne: true }
       }).populate('addedBy', 'name')
         .populate('customer', 'firstName lastName')
         .populate('payments.method', 'name'),
 
+      // Remove date filter for purchases
       Purchase.find({
-        ...getDateRangeMatch('purchaseDate', startDate, endDate, locationId),
+        //'purchaseDate' filter removed
+        businessLocation: locationId ? locationId : { $exists: true },
         'payments.account': accountId,
         isDeleted: { $ne: true }
       }).populate('addedBy', 'name')
         .populate('supplier', 'businessName')
         .populate('payments.method', 'name'),
 
+      // Remove date filter for expenses
       Expense.find({
-        ...getDateRangeMatch('transactionDate', startDate, endDate, locationId),
+        //'transactionDate' filter removed
+        businessLocation: locationId ? locationId : { $exists: true },
         'payments.account': accountId,
         isDeleted: { $ne: true }
       }).populate('addedBy', 'name')
         .populate('category', 'name')
         .populate('payments.method', 'name'),
 
+      // Remove date filter for sale returns
       SaleReturn.find({
-        ...getDateRangeMatch('returnDate', startDate, endDate, locationId),
+        //'returnDate' filter removed
+        businessLocation: locationId ? locationId : { $exists: true },
         'returnPayments.account': accountId,
         isDeleted: { $ne: true }
       })
         .populate('addedBy', 'name')
         .populate('returnPayments.method', 'name')
-        .populate('originalSale', 'invoiceNo') // populate for reference
-        .populate('newPurchase', 'referenceNo'), // populate for reference
+        .populate('originalSale', 'invoiceNo')
+        .populate('newPurchase', 'referenceNo'),
 
+      // Remove date filter for purchase returns
       PurchaseReturn.find({
-        ...getDateRangeMatch('returnDate', startDate, endDate, locationId),
+        //'returnDate' filter removed
+        businessLocation: locationId ? locationId : { $exists: true },
         'returnPayments.account': accountId,
         isDeleted: { $ne: true }
       })
         .populate('addedBy', 'name')
         .populate('returnPayments.method', 'name')
-        .populate('originalPurchase', 'referenceNo'), // populate for reference
+        .populate('originalPurchase', 'referenceNo'),
     ]);
 
     // Process Deposits
@@ -210,11 +221,14 @@ exports.getAccountBook = async (req, res) => {
       }
     });
 
-    // Process Sales
+    // Process Sales (filter by payment.paidOn)
     sales.forEach(sale => {
       sale.payments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || sale.saleDate);
-        if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
+        if (
+          pmt.account?.toString() === accountId &&
+          isInDateRange(paidDate)
+        ) {
           const customerName = sale.customer?.firstName ?
             `${sale.customer.firstName} ${sale.customer.lastName || ''}`.trim() : 'N/A';
           const description = `Sale\nCustomer: ${customerName}\nReference No: ${sale.invoiceNo || ''}\nInvoice No: ${sale.invoiceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${sale.addedBy?.name || ''}`;
@@ -236,11 +250,14 @@ exports.getAccountBook = async (req, res) => {
       });
     });
 
-    // Process Purchases
+    // Process Purchases (filter by payment.paidOn)
     purchases.forEach(pur => {
       pur.payments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || pur.purchaseDate);
-        if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
+        if (
+          pmt.account?.toString() === accountId &&
+          isInDateRange(paidDate)
+        ) {
           const supplierName = pur.supplier?.businessName || 'N/A';
           const description = `Purchase\nSupplier: ${supplierName}\nReference No: ${pur.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${pur.addedBy?.name || ''}`;
           // Reference No above Pay reference no.
@@ -261,11 +278,40 @@ exports.getAccountBook = async (req, res) => {
       });
     });
 
-    // Process Sale Returns
+    // Process Expenses (filter by payment.paidOn)
+    expenses.forEach(exp => {
+      exp.payments?.forEach(pmt => {
+        const paidDate = new Date(pmt.paidOn || exp.transactionDate);
+        if (
+          pmt.account?.toString() === accountId &&
+          isInDateRange(paidDate)
+        ) {
+          const description = `Expense\nCategory: ${exp.category?.name || ''}\nReference No: ${exp.referenceNo || ''}\nPay reference no.: ${pmt.paymentRefNo || ''}\nAdded By: ${exp.addedBy?.name || ''}`;
+          const methodName = pmt.method?.name || pmt.method || '';
+          pushEntry({
+            date: paidDate,
+            description,
+            method: methodName,
+            details: pmt.note || '',
+            note: exp.additionalNotes || '',
+            addedBy: exp.addedBy,
+            debit: parseFloat(pmt.amount || 0),
+            credit: 0,
+            referenceId: exp._id,
+            referenceNo: exp.referenceNo || ''
+          });
+        }
+      });
+    });
+
+    // Process Sale Returns (filter by returnPayment.paidOn)
     saleReturns.forEach(ret => {
       ret.returnPayments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || ret.returnDate);
-        if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
+        if (
+          pmt.account?.toString() === accountId &&
+          isInDateRange(paidDate)
+        ) {
           let referenceId = '';
           let referenceNo = '';
           if (ret.newPurchase) {
@@ -294,11 +340,14 @@ exports.getAccountBook = async (req, res) => {
       });
     });
 
-    // Process Purchase Returns
+    // Process Purchase Returns (filter by returnPayment.paidOn)
     purchaseReturns.forEach(ret => {
       ret.returnPayments?.forEach(pmt => {
         const paidDate = new Date(pmt.paidOn || ret.returnDate);
-        if (pmt.account?.toString() === accountId && isInDateRange(paidDate)) {
+        if (
+          pmt.account?.toString() === accountId &&
+          isInDateRange(paidDate)
+        ) {
           let referenceId = '';
           let referenceNo = '';
           if (ret.originalPurchase) {
