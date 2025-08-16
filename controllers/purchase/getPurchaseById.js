@@ -5,9 +5,19 @@ exports.getPurchaseById = async (req, res) => {
     const purchase = await Purchase.findById(req.params.id)
       .populate('supplier', 'businessName firstName lastName')
       .populate('businessLocation', 'name')
-      .populate('products.product', 'productName')
+      .populate({
+        path: 'products.product',
+        select: 'productName category',
+        populate: {
+          path: 'category',
+          select: 'name code description isAcceptIMEI'
+        }
+      })
+      .populate('products.stockId', 'quantity imeiNo serialNo status')
       .populate('addedBy', 'name _id')
-      .populate('payments.account').populate('payments.method');
+      .populate('payments.account')
+      .populate('payments.method')
+      .lean();
 
     if (!purchase || purchase.isDeleted) {
       return res.status(404).json({ message: 'Purchase not found' });

@@ -4,9 +4,9 @@ const path = require('path');
 const mongoose = require('mongoose');
 const archiver = require('archiver');
 const nodemailer = require('nodemailer');
+const { EJSON } = require('bson'); // ✅ Import EJSON
 
 // Setup
-const mongoUri = process.env.MONGO_URI;
 const sendToEmail = process.env.BACKUP_EMAIL;
 const backupDir = path.join(__dirname, 'backups');
 
@@ -15,28 +15,26 @@ const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS, 
+    pass: process.env.EMAIL_PASS,
   },
 });
 
-// Utility to export all collections
+// Utility to export all collections using EJSON
 async function backupMongoToJSON() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backupPath = path.join(backupDir, `backup-${timestamp}`);
   fs.mkdirSync(backupPath, { recursive: true });
-
-  await mongoose.connect(mongoUri);
-  console.log(`[${new Date().toLocaleString()}] Connected to MongoDB`);
 
   const collections = await mongoose.connection.db.listCollections().toArray();
 
   for (const col of collections) {
     const name = col.name;
     const data = await mongoose.connection.db.collection(name).find({}).toArray();
-    fs.writeFileSync(path.join(backupPath, `${name}.json`), JSON.stringify(data, null, 2));
+    const ejsonData = EJSON.stringify(data, null, 2); // ✅ EJSON conversion
+    fs.writeFileSync(path.join(backupPath, `${name}.json`), ejsonData);
   }
 
-  console.log('Collections dumped to JSON');
+  console.log('Collections dumped to EJSON');
 
   // Zip backup folder
   const zipPath = `${backupPath}.zip`;
@@ -56,7 +54,7 @@ async function backupMongoToJSON() {
 
   // Email the backup
   await transporter.sendMail({
-    from: '"DB Backup" <yakshbhesaniya@gmail.com>',
+    from: `"DB Backup" <${process.env.EMAIL_USER}>`,
     to: sendToEmail,
     subject: `DB Backup of Your Store - ${timestamp}`,
     text: `Backup created at ${timestamp}`,
@@ -74,8 +72,6 @@ async function backupMongoToJSON() {
   fs.rmSync(backupPath, { recursive: true, force: true });
   fs.unlinkSync(zipPath);
   console.log('Temporary files cleaned up');
-
-  await mongoose.disconnect();
 }
 
 cron.schedule('0 0 * * *', () => {

@@ -13,11 +13,15 @@ const { listSaleReturns } = require('../controllers/sales/listSaleReturns');
 const { addSaleReturn } = require('../controllers/sales/addSaleReturn');
 const { getRecentSalePrice } = require('../controllers/sales/getRecentSalePrice');
 const { getAllSalesByBusinessLocation } = require('../controllers/sales/getAllSalesByBusinessLocation');
+const { getSaleDuePayments } = require('../controllers/sales/getSaleDuePayments');
+const { addSalePayment } = require('../controllers/sales/addSalePayments');
 
 router.get('/', protect, listAllSales);
 router.post('/', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), addSale);
+router.get('/due-payments/:locationId', protect, getSaleDuePayments);
 router.get('/returns/:locationId', protect, listSaleReturns);
-router.post('/returns/:saleId', protect, authorizeRoles('admin'), addSaleReturn);
+router.post('/returns/:oldSaleId', protect, authorizeRoles('admin'), addSaleReturn);
+router.post('/payment/:saleId', protect, authorizeRoles('admin'), addSalePayment);
 router.get('/location/:locationId', protect, getAllSalesByBusinessLocation);
 router.get('/recent-price/:productId', protect, getRecentSalePrice);
 router.get('/:id', protect, getSaleById);

@@ -1,125 +1,114 @@
-const Sale = require('../../models/saleModel');       
-const Purchase = require('../../models/purchaseModel'); 
-const Expense = require('../../models/expenseModel');   
+const Sale = require('../../models/saleModel');
+const Purchase = require('../../models/purchaseModel');
+const Expense = require('../../models/expenseModel');
+const PurchaseReturn = require('../../models/purchaseReturnModel');
+
+const getDateRangeMatch = (field, startDate, endDate, locationId) => {
+  const filter = {};
+  if (startDate && endDate) {
+    filter[field] = {
+      $gte: new Date(startDate + 'T00:00:00.000Z'),
+      $lte: new Date(endDate + 'T23:59:59.999Z')
+    };
+  } else if (startDate) {
+    filter[field] = { $gte: new Date(startDate + 'T00:00:00.000Z') };
+  } else if (endDate) {
+    filter[field] = { $lte: new Date(endDate + 'T23:59:59.999Z') };
+  }
+
+  if (locationId) {
+    filter.businessLocation = locationId;
+  }
+
+  return filter;
+};
 
 async function getPaymentsAccountReport(req, res) {
   try {
-    // Fetch sales with populated customer and payments.account
-    const sales = await Sale.find({ isDeleted: false })
-      .populate({
-        path: 'customer',
-        select: 'firstName lastName name contactType',
-      })
-      .populate({
-        path: 'payments.account',
-        select: 'name',
-      })
-      .lean();
+    const { businessLocation, startDate, endDate } = req.query;
 
-    // Fetch purchases with populated supplier and payments.account
-    const purchases = await Purchase.find({ isDeleted: false })
-      .populate({
-        path: 'supplier',
-        select: 'firstName lastName name contactType',
-      })
-      .populate({
-        path: 'payments.account',
-        select: 'name',
-      })
-      .lean();
+    const saleFilter = { ...getDateRangeMatch('saleDate', startDate, endDate, businessLocation), isDeleted: { $ne: true } };
+    const purchaseFilter = { ...getDateRangeMatch('purchaseDate', startDate, endDate, businessLocation), isDeleted: { $ne: true } };
+    const expenseFilter = { ...getDateRangeMatch('transactionDate', startDate, endDate, businessLocation), isDeleted: { $ne: true } };
+    const purchaseReturnFilter = { ...getDateRangeMatch('returnDate', startDate, endDate, businessLocation), isDeleted: { $ne: true } };
 
-    // Fetch expenses with populated expenseForContact and payments.account
-    const expenses = await Expense.find({ isDeleted: false })
-      .populate({
-        path: 'expenseForContact',
-        select: 'firstName lastName name contactType',
-      })
-      .populate({
-        path: 'payments.account',
-        select: 'name',
-      })
-      .lean();
+    const [sales, purchases, expenses, purchaseReturns] = await Promise.all([
+      Sale.find(saleFilter)
+        .populate({ path: 'customer', select: 'firstName lastName name contactType' })
+        .populate({ path: 'payments.account', select: 'name' })
+        .lean(),
 
-    // Helper to build contact name
+      Purchase.find(purchaseFilter)
+        .populate({ path: 'supplier', select: 'firstName lastName name contactType' })
+        .populate({ path: 'payments.account', select: 'name' })
+        .lean(),
+
+      Expense.find(expenseFilter)
+        .populate({ path: 'expenseForContact', select: 'firstName lastName name contactType' })
+        .populate({ path: 'payments.account', select: 'name' })
+        .lean(),
+
+      PurchaseReturn.find(purchaseReturnFilter)
+        .populate({ path: 'supplier', select: 'firstName lastName name contactType' })
+        .populate({ path: 'payments.account', select: 'name' })
+        .lean(),
+    ]);
+
     const getContactName = (contact) => {
       if (!contact) return null;
       if (contact.firstName || contact.lastName) {
         return `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
       }
-      // fallback to 'name' if exists (sometimes contact might have just 'name' field)
       return contact.name || null;
     };
 
-    // Map sales to merged format
-    const salesReport = sales.map(sale => ({
-      refNo: sale.invoiceNo,
-      contact: sale.customer ? {
-        _id: sale.customer._id,
-        name: getContactName(sale.customer),
-        type: sale.customer.contactType,
-      } : null,
-      date: sale.saleDate,
-      totalAmount: sale.total,
-      payments: (sale.payments || []).map(p => ({
-        paymentRefNo: p.paymentRefNo,
-        paidDate: p.paidDate,
-        amount: p.amount,
-        account: p.account && p.account._id ? {
-          _id: p.account._id,
-          name: p.account.name
-        } : null,
-      })),
-      sourceType: 'Sell',
-    }));
+    const getPaymentDetails = (entry, type, refNo, contact, entryDate) => {
+      if (!entry?.payments?.length) return [];
 
-    // Map purchases to merged format
-    const purchaseReport = purchases.map(purchase => ({
-      refNo: purchase.referenceNo,
-      contact: purchase.supplier ? {
-        _id: purchase.supplier._id,
-        name: getContactName(purchase.supplier),
-        type: purchase.supplier.contactType,
-      } : null,
-      date: purchase.purchaseDate,
-      totalAmount: purchase.total,
-      payments: (purchase.payments || []).map(p => ({
-        paymentRefNo: p.paymentRefNo,
-        paidDate: p.paidDate,
-        amount: p.amount,
-        account: p.account && p.account._id ? {
-          _id: p.account._id,
-          name: p.account.name
-        } : null,
-      })),
-      sourceType: 'Purchase',
-    }));
+      const accountNames = [
+        ...new Set(entry.payments.map(p => p.account?.name).filter(Boolean))
+      ].join(' & ');
 
-    // Map expenses to merged format
-    const expenseReport = expenses.map(expense => ({
-      refNo: expense.referenceNo,
-      contact: expense.expenseForContact ? {
-        _id: expense.expenseForContact._id,
-        name: getContactName(expense.expenseForContact),
-        type: expense.expenseForContact.contactType,
-      } : null,
-      date: expense.transactionDate,
-      totalAmount: expense.totalAmount,
-      payments: (expense.payments || []).map(p => ({
-        paymentRefNo: p.paymentRefNo,
-        paidDate: p.paidDate,
-        amount: p.amount,
-        account: p.account && p.account._id ? {
-          _id: p.account._id,
-          name: p.account.name
-        } : null,
-      })),
-      sourceType: 'Expense',
-    }));
+      const totalAmount = entry.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
-    // Combine all into one report array
-    const combinedReport = [...salesReport, ...purchaseReport, ...expenseReport];
+      const date = entry.payments[0].paidDate || entryDate;
 
-    // Sort combined by descending date
+      return [{
+        date,
+        paymentRefNo: entry.payments.map(p => p.paymentRefNo).filter(Boolean).join(' / ') || '-',
+        invoiceOrRefNo: refNo || '-',
+        amount: totalAmount,
+        paymentType: type,
+        account: accountNames || '-',
+        description: contact
+          ? `${contact.contactType === 'customer' ? 'Customer' : 'Supplier'}: ${getContactName(contact)}`
+          : '-',
+      }];
+    };
+
+    const salesReport = sales.flatMap(sale =>
+      getPaymentDetails(sale, 'Sell', sale.invoiceNo, sale.customer, sale.saleDate)
+    );
+
+    const purchaseReport = purchases.flatMap(purchase =>
+      getPaymentDetails(purchase, 'Purchase', purchase.referenceNo, purchase.supplier, purchase.purchaseDate)
+    );
+
+    const expenseReport = expenses.flatMap(expense =>
+      getPaymentDetails(expense, 'Expense', expense.referenceNo, expense.expenseForContact, expense.transactionDate)
+    );
+
+    const purchaseReturnReport = purchaseReturns.flatMap(ret =>
+      getPaymentDetails(ret, 'Purchase Return', ret.referenceNo, ret.supplier, ret.returnDate)
+    );
+
+    const combinedReport = [
+      ...salesReport,
+      ...purchaseReport,
+      ...expenseReport,
+      ...purchaseReturnReport
+    ];
+
     combinedReport.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     res.json(combinedReport);

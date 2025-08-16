@@ -3,15 +3,16 @@ const cors = require('cors');
 const path = require('path');
 const connectDB = require('./config/db');
 require('dotenv').config();
+const { warmupInvoiceSystem, cleanupInvoiceSystem } = require('./controllers/invoice/generateInvoice');
 
 const app = express();
 connectDB();
-require('./cron/recurringExpenseJob');
+//require('./cron/recurringExpenseJob');
 require('./cron/backupAndEmail');
 
 // Middlewares
 app.use(cors({
-    origin: 'https://portal.mobixmobile.in',
+    origin: ['https://portal.mobixmobile.in', 'http://localhost:5173'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
@@ -64,5 +65,8 @@ app.use('/api/accounts', accountRoutes);
 
 const invoiceRoutes = require('./routes/invoiceRoutes');
 app.use('/api/invoices', invoiceRoutes);
+
+const reportRoutes = require('./routes/reportRoutes');
+app.use('/api/reports', reportRoutes);
 
 module.exports = app;

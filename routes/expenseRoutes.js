@@ -10,9 +10,11 @@ const { getExpenseById } = require('../controllers/expenses/getExpenseById');
 const { updateExpense } = require('../controllers/expenses/updateExpense');
 const { deleteExpense } = require('../controllers/expenses/deleteExpense');
 const { getAllExpensesByBusinessLocation } = require('../controllers/expenses/getAllExpensesByBusinessLocation');
+const { addExpensePayment } = require('../controllers/expenses/addExpensePayment');
 
 router.post('/', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), addExpense);
 router.get('/location/:locationId', protect, getAllExpensesByBusinessLocation);
+router.post('/payment/:expenseId', protect, authorizeRoles('admin'), addExpensePayment);
 router.get('/', protect, getAllExpenses);
 router.get('/:id', protect, getExpenseById);
 router.put('/:id', protect, authorizeRoles('admin'), uploadMultiple('documents', 5), updateExpense);

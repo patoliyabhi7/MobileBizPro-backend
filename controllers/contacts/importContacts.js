@@ -1,5 +1,6 @@
 const xlsx = require('xlsx');
 const Contact = require('../../models/contactModel');
+const generateAutoId = require('../../utils/generateAutoId');
 
 exports.importContacts = async (req, res) => {
   try {
@@ -19,6 +20,10 @@ exports.importContacts = async (req, res) => {
         '2': 'Supplier',
         '3': 'Both',
       };
+
+      if(!row['CONTACT ID']) {
+        row['CONTACT ID'] = await generateAutoId('CONT');
+      }
 
       const contact = new Contact({
         contactType: contactTypeMap[row['CONTACT TYPE']] || 'Customer',

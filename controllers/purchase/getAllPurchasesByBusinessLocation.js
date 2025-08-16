@@ -18,13 +18,13 @@ exports.getAllPurchasesByBusinessLocation = async (req, res) => {
       .populate('supplier', 'businessName firstName lastName')
       .populate('businessLocation', 'name')
       .populate('products.product', 'productName')
+      .populate('products.stockId', 'quantity imeiNo serialNo status')
       .populate('addedBy', 'name _id')
-      .populate('payments.account').populate('payments.method');
+      .populate('payments.account')
+      .populate('payments.method');
 
     res.status(200).json({ purchases });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
-
-

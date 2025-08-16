@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Product = require('../../models/productModel');
 const Stock = require('../../models/stockModel');
+const Purchase = require('../../models/purchaseModel');
 
 exports.getAllProductsByBusinessLocation = async (req, res) => {
   try {
@@ -12,27 +13,52 @@ exports.getAllProductsByBusinessLocation = async (req, res) => {
 
     const locationId = new mongoose.Types.ObjectId(rawLocationId);
 
-    // Find products by business location and not deleted
+    // Find all products for this location
     const products = await Product.find({
       businessLocation: locationId,
       isDeleted: false
     })
-    .populate('brand')
-    .populate('category')
-    .populate('businessLocation')
-    .lean();
+      .populate('brand')
+      .populate('category')
+      .populate('businessLocation')
+      .lean();
 
-    // For each product, count stock items in this location with status = 1
+    const productIds = products.map(p => p._id);
+
+    // Fetch recent purchase price for each product in one shot
+    const recentPurchases = await Purchase.aggregate([
+      { $match: { 'products.product': { $in: productIds } } },
+      { $unwind: '$products' },
+      { $match: { 'products.product': { $in: productIds } } },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: '$products.product',
+          purchasePrice: { $first: '$products.unitCost' }
+        }
+      }
+    ]);
+
+    // Map of productId -> recent purchasePrice
+    const priceMap = new Map();
+    recentPurchases.forEach(p => {
+      priceMap.set(p._id.toString(), p.purchasePrice);
+    });
+
+    // Fetch stock quantity for each product
     const productsWithQty = await Promise.all(products.map(async (product) => {
-      const qty = await Stock.countDocuments({
+      const stocks = await Stock.find({
         product: product._id,
         businessLocation: locationId,
         status: 1
       });
+      
+      const qty = stocks.reduce((total, stock) => total + (stock.quantity || 0), 0);
 
       return {
         ...product,
-        quantity: qty
+        quantity: qty,
+        recentPurchasePrice: priceMap.get(product._id.toString()) || 0
       };
     }));
 

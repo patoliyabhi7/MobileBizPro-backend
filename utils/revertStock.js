@@ -2,25 +2,21 @@ const Stock = require('../models/stockModel');
 
 const revertStock = async (products = []) => {
   for (const item of products) {
-    let query = {};
+    const { stockId, quantity = 1 } = item;
+    if (!stockId) continue;
 
-    if (item.imeiNo) {
-      query.imeiNo = item.imeiNo;
+    const stockItem = await Stock.findById(stockId);
+    if (!stockItem) continue;
+
+    if (stockItem.imeiNo) {
+      stockItem.status = 1; // Mark mobile as available again
+      stockItem.quantity = 1;
     } else {
-      // fallback if IMEI is missing
-      query.product = item.product;
-      if (item.color) query.color = item.color;
-      if (item.storage) query.storage = item.storage;
+      stockItem.quantity += quantity;
+      if(stockItem.quantity > 0) stockItem.status = 1;
     }
 
-    console.log("♻️ revertStock query:", query);
-
-    const stockItem = await Stock.findOne(query);
-
-    if (stockItem) {
-      stockItem.status = 1; // mark as available
-      await stockItem.save();
-    }
+    await stockItem.save();
   }
 };
 
